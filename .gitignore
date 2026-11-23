@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+web/dist/
+
+# Runtime artifacts - generated media, cached transcripts, the database
+data/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build info
+*.tsbuildinfo

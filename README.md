@@ -1,0 +1,233 @@
+# Clip Factory
+
+Local-first stream clipper. Point it at a long VOD; it finds the moments worth
+posting and hands you a reviewable reel with a quality scorecard on every clip.
+Nothing is uploaded, and the only model is the one you install.
+
+Built for laptops that are not fast: the deterministic signals do the finding,
+the LLM only re-ranks a short list, and the whole analysis pipeline runs in
+~65 MB of resident memory for a 2-minute source (see [Measured cost](#measured-cost)).
+
+![The reel](docs/ui-reel.png)
+
+---
+
+## What actually works right now
+
+| Area | State |
+|---|---|
+| Ingest (local file), ffprobe, streamed audio, peak pyramid | working |
+| Transcription: whisper.cpp adapter + SRT/VTT import + deterministic stub | working |
+| Word alignment (monotonic clamp, silence snapping, outlier repair) | working |
+| Signals, percentile fusion, sentence-aligned windows | working |
+| Quality gates + visible scorecard + reel quality score | working |
+| LLM re-ranking with GBNF-constrained JSON, plus a labelled stub scorer | working |
+| Diversity/overlap/dedupe selection | working |
+| Caption page grouping with CPS + line-budget warnings | working |
+| Feedback loop: decision log → personal re-ranker → few-shot memory → style profile | working |
+| Hardware probe + tier advisory + model recommendations | working |
+| Desktop shell (Electron + Python sidecar, orphan-proof) | working |
+| ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
+| Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
+| FilmCraft handoff, `.otio` export, gold-set benchmark | **not yet built** |
+
+The remaining honest gap is the editor handoff: this build finds, ranks, reviews,
+renders and explains clips on its own, but it does not yet push a timeline into
+FilmCraft or Premiere. Everything before that point is real — see
+`docs/render-frame.png` for a frame taken straight out of a rendered clip.
+
+---
+
+## Quickstart
+
+```bash
+# 1. Python sidecar
+py -3 -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+
+# 2. Web UI
+cd web && npm install && cd ..
+
+# 3. Run both (two terminals)
+./.venv/Scripts/python.exe -m clipper --port 8756          # needs PYTHONPATH=backend
+cd web && npm run dev                                       # http://localhost:5173
+```
+
+Or use the desktop shell (builds the UI first):
+
+```bash
+cd web && npm run build
+cd ../desktop && npm install && npx electron .
+```
+
+If Electron refuses to start with `app is undefined`, your shell has
+`ELECTRON_RUN_AS_NODE=1` set; unset it for that command.
+
+Then in the UI: **Generate a demo stream → Analyze**, or paste a path to a real
+VOD. With no model installed the app runs the deterministic stub scorer and says
+so on every clip.
+
+### Tests
+
+```bash
+./.venv/Scripts/python.exe -m pytest        # 67 tests, ~9 s, includes a real end-to-end run
+./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
+```
+
+---
+
+## How it avoids garbage output
+
+Five gates, all deterministic except the self-critique:
+
+1. **Input gates** — ASR confidence, low-confidence ratio, speech coverage,
+   non-Latin ratio (catches the whisper music/silence hallucination class),
+   sponsor reads, stream warm-up, blocklist.
+2. **Structural gates** — sentence-bounded edges, a hook cue inside the first
+   three seconds, non-deictic opening ("this…", "and then…" fail), length band.
+3. **Selection constraints** — overlap rejection, lexical near-duplicate
+   rejection, and a cap per 30-minute region so the reel is not ten variations
+   of one hot streak.
+4. **Grounding check** — the hook must be supported by the clip's own transcript;
+   numbers in the hook must appear in the clip.
+5. **Visible scorecard** — eight pass/fail items per clip and an aggregate reel
+   quality percentage. The UI shows the same numbers the tests assert on.
+
+Windows that fail a block gate never reach the LLM at all. That is the whole
+point: the model is a re-ranker, not the detector.
+
+---
+
+## How the AI gets better
+
+Fine-tuning a 7B model on a few hundred examples overfits; few-shot prompting
+usually wins. So the learning loop is retrieval plus a tiny model, and
+fine-tuning is an export path, not a mechanism.
+
+1. **Decision log** — every approve/reject (with a one-word reason), hook edit
+   and trim is stored with the exact feature vector at decision time. Immutable.
+2. **Personal re-ranker** — logistic regression over those features, trained in
+   milliseconds on the CPU, blended into the pipeline score. It activates at 40
+   decisions and **only replaces the live model if it beats both the pipeline
+   score and the previous ranker on a time-based holdout** (AUC, +0.02 margin).
+   That gate is what stops the loop from degrading into garbage.
+3. **Few-shot memory** — the three most similar windows you approved and the
+   three you rejected are injected into the scoring prompt. Zero training.
+4. **Style profile** — deterministic statistics from your hook edits ("shortens
+   hooks by 3 words, removes emoji"), injected as a stable prompt prefix so the
+   KV cache is reused.
+5. **Export** — `GET /api/learn/export` emits SFT pairs + DPO triples for people
+   who want to fine-tune elsewhere.
+
+Everything is per-machine, versioned, inspectable and revertible. Feedback can
+only re-rank inside the gated pool — it can never manufacture a clip that fails
+the gates.
+
+---
+
+## Rendering
+
+The clip is finished in one `ffmpeg` pass: source trimmed, reframed to
+1080×1920, captions burned by libass, audio normalised to -14 LUFS.
+
+| Preset | Look |
+|---|---|
+| `hormozi` | heavy Arial Black, one line at a time, orange on black outline |
+| `box` | solid plate behind each line, high contrast for noisy footage |
+| `karaoke` | white text, orange word-by-word fill using ASS `\k` tags |
+| `minimal` | light weight, low position, no outline |
+| `landscape` | 16:9 passthrough for non-vertical platforms |
+
+Framing is either `crop` (centre-crop to fill the frame) or `blur` (blurred and
+darkened source as the backdrop, full picture fitted on top — the sane default
+for 16:9 gameplay).
+
+Hardware encoders are **probed, not trusted**: each candidate runs a one-frame
+test encode at startup and is used only if it actually succeeds. This machine has
+`h264_nvenc` compiled into ffmpeg but no NVIDIA driver, so the probe correctly
+falls through to `libx264`. Rendering a 16 s clip takes ~7 s here.
+
+![Caption editor and render panel](docs/ui-captions.png)
+
+Better to fail loudly than ship a file with no captions: ffmpeg's stderr is
+captured and surfaced in the UI, and a relative data directory is resolved to an
+absolute path before the renderer `chdir`s into its work folder.
+
+---
+
+## Efficiency
+
+The design rule is `peak = max(ASR, LLM)` and never `ASR + LLM`. One job worker
+runs one heavy stage at a time. Audio is streamed in 60 s blocks, frames never
+enter Python, the waveform is pre-rendered peaks, and the LLM budget goes to a
+pre-deduplicated shortlist rather than every window.
+
+### Measured cost
+
+`scripts/perf.py`, 2-minute source, stub ASR, this machine:
+
+| Stage | Seconds | Peak MB |
+|---|---|---|
+| baseline (imported, idle) | — | 55 |
+| audio | 0.93 | 64 |
+| transcribe + align + windows | 0.05 | 59 |
+| signals + gates | 0.06 | 58 |
+| score (stub) | 0.03 | 58 |
+| select | 0.03 | 59 |
+| **total** | **1.06** | **64** |
+
+Real ASR adds a separate `whisper-cli` process (roughly +0.5 GB for
+`small.en`, +1.5 GB for `medium.en`); a 3B scorer adds ~2.0 GB in
+`llama-server`. Those are separate processes precisely so the OS can reclaim
+them the moment a stage ends.
+
+Frontend: 78 KB gzipped JS, 4.5 KB CSS, no animation library, no utility
+framework, no audio decoding in the renderer.
+
+---
+
+## Architecture
+
+```
+web/                      React + TS, hand-authored CSS (no Tailwind)
+  src/components/         Sidebar, Waveform, ClipCard, Inspector, SetupModal
+desktop/                  Electron shell: spawns + health-checks + tree-kills the sidecar
+backend/clipper/
+  api.py                  FastAPI; also serves web/dist in production
+  service.py              the pipeline as one resumable function
+  pipeline/
+    media.py              ffprobe, streamed audio, RMS/flux/ZCR, peak pyramid
+    asr.py                whisper.cpp (-oj -ml 1 --vad -fa), SRT/VTT import, stub
+    align.py              monotonic clamp, silence snapping, outlier repair
+    signals.py            five signals, percentile normalisation, fusion
+    windows.py            sentence-aligned candidate windows
+    gates.py              G1 input gates, G2 structural gates
+    scorecard.py          grounding check + visible scorecard
+    select.py             overlap / duplicate / diversity selection
+    caption/group.py      caption pages, CPS limits, line budgets
+  llm/                    GBNF grammar, prompts, llama-server + stub scorers
+  learn/                  decision log, re-ranker, few-shot memory, style profile
+  hw/                     (hardware.py) probe, tier advisory, model manifest
+  rt/                     peak-RSS sampling used by scripts/perf.py
+scripts/perf.py           measured resource report
+```
+
+The sidecar binds `127.0.0.1` only. There is no account layer, no telemetry and
+no cloud path; the only network calls are the optional model download and URL
+imports, both opt-in.
+
+---
+
+## Where this goes next
+
+1. **FilmCraft handoff** — `filmcraft-cli mcp` command batches to build an
+   editable timeline from the same clip specs, with `.otio` as the exit path.
+2. **Model manager UI** — the manifest and resumable downloader exist; the UI
+   should drive them, so nobody has to set `CLIPPER_WHISPER_CLI` by hand.
+3. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
+   Twitch VODs so the chat weight stops being redistributed away.
+4. **Gold-set benchmark** — hand-labelled moments per fixture video, scored in
+   CI so a change that makes picks worse fails the build.
+5. **Caption drift guard** — the renderer and the editor preview are two code
+   paths for the same page model; add a cross-render assertion before FilmCraft
+   lands so they cannot disagree silently.

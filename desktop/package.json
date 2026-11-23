@@ -1,0 +1,14 @@
+{
+  "name": "clip-factory-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Clip Factory desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:debug": "electron . --debug"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  }
+}
