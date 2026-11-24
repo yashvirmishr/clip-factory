@@ -75,7 +75,9 @@ def main(argv: list[str] | None = None) -> int:
         result = service.analyze(source, limit=max(args.limit, 6), force=True)
         report = bench.evaluate_result(result, gold, limit=args.limit, threshold=args.threshold)
         rows.append({"fixture": path.stem, **report.to_dict()})
-        if not args.quiet:
+        if args.quiet:
+            print(report.summary_line(path.stem))
+        else:
             print("  " + report.summary_line(path.stem))
             for match in report.matches:
                 flag = "dup" if match.duplicate else "hit"
@@ -103,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps({"totals": totals, "fixtures": rows}, indent=2))
-    elif not args.quiet:
+    else:
         print(
             f"\nmean over {totals['fixtures']} fixture(s): "
             f"P@k {totals.get('mean_precision', 0):.2f}  "
