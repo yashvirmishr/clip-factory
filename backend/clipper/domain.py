@@ -43,6 +43,9 @@ class SourceInfo(BaseModel):
     fps: float = 0.0
     has_audio: bool = True
     size_bytes: int = 0
+    # Where it came from, when it was fetched rather than opened. Kept so chat
+    # can be fetched later without asking the user for the URL again.
+    origin_url: str = ""
 
 
 class LLMJudgement(BaseModel):

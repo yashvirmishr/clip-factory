@@ -1,5 +1,7 @@
 """Model manager rules: what fits, what is found, what activation persists."""
 
+import os
+
 import pytest
 
 from clipper import hardware, models
@@ -61,6 +63,17 @@ def test_find_whisper_cli_searches_a_bin_directory(tmp_path, monkeypatch):
     binary = tmp_path / "whisper-cli.exe"
     binary.write_bytes(b"x")
     assert hardware.find_whisper_cli([tmp_path]) == str(binary)
+
+
+def test_find_whisper_cli_ignores_a_control_panel_applet_on_path(tmp_path, monkeypatch):
+    """which("main") answers main.CPL on Windows; that is not a whisper binary."""
+    if os.name != "nt":
+        pytest.skip("PATHEXT substitution is a Windows behaviour")
+    monkeypatch.delenv("CLIPPER_WHISPER_CLI", raising=False)
+    (tmp_path / "main.CPL").write_bytes(b"x")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD;.CPL")
+    assert hardware.find_whisper_cli([tmp_path]) == ""
 
 
 def test_find_whisper_cli_reports_nothing_when_absent(tmp_path, monkeypatch):

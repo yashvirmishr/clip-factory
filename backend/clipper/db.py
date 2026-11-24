@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sources (
     fps REAL NOT NULL DEFAULT 0,
     has_audio INTEGER NOT NULL DEFAULT 1,
     size_bytes INTEGER NOT NULL DEFAULT 0,
+    origin_url TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL
 );
 
@@ -98,22 +99,27 @@ def init(db_path: Path | None = None) -> None:
             conn.execute("ALTER TABLE decisions ADD COLUMN llm TEXT NOT NULL DEFAULT '{}'")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE sources ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
 
 
 def upsert_source(info: SourceInfo) -> SourceInfo:
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO sources (id, name, path, duration, width, height, fps, has_audio, size_bytes, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO sources (id, name, path, duration, width, height, fps, has_audio, size_bytes, origin_url, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name, path=excluded.path, duration=excluded.duration,
                 width=excluded.width, height=excluded.height, fps=excluded.fps,
-                has_audio=excluded.has_audio, size_bytes=excluded.size_bytes
+                has_audio=excluded.has_audio, size_bytes=excluded.size_bytes,
+                origin_url=excluded.origin_url
             """,
             (
                 info.id, info.name, info.path, info.duration, info.width, info.height,
-                info.fps, int(info.has_audio), info.size_bytes, time.time(),
+                info.fps, int(info.has_audio), info.size_bytes, info.origin_url, time.time(),
             ),
         )
     return info
@@ -128,6 +134,7 @@ def get_source(source_id: str) -> SourceInfo | None:
         id=row["id"], name=row["name"], path=row["path"], duration=row["duration"],
         width=row["width"], height=row["height"], fps=row["fps"],
         has_audio=bool(row["has_audio"]), size_bytes=row["size_bytes"],
+        origin_url=row["origin_url"] if "origin_url" in row.keys() else "",
     )
 
 
@@ -139,6 +146,7 @@ def list_sources() -> list[SourceInfo]:
             id=r["id"], name=r["name"], path=r["path"], duration=r["duration"],
             width=r["width"], height=r["height"], fps=r["fps"],
             has_audio=bool(r["has_audio"]), size_bytes=r["size_bytes"],
+            origin_url=r["origin_url"] if "origin_url" in r.keys() else "",
         )
         for r in rows
     ]

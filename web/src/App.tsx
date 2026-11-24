@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar'
 import { Waveform } from './components/Waveform'
 import type {
   Analysis,
+  ChatStatus,
   Clip,
   Hardware,
   JobState,
@@ -25,6 +26,10 @@ const PHASES = [
   { id: 'select', label: 'Select', stages: ['select', 'done'] },
 ]
 
+// A chat download is a paged walk over the replay, not part of the analysis
+// pipeline, so it gets its own one-step track instead of five idle phases.
+const CHAT_PHASES = [{ id: 'chat', label: 'Chat', stages: ['chat'] }]
+
 interface Toast {
   id: number
   kind: 'ok' | 'error' | 'info'
@@ -33,12 +38,15 @@ interface Toast {
 
 const REJECT_REASONS = ['boring', 'confusing', 'cut off', 'spoiler', 'off topic', 'duplicate']
 
-function phaseStates(job: JobState | null): Record<string, string> {
+function phaseStates(
+  job: JobState | null,
+  phases: typeof PHASES = PHASES,
+): Record<string, string> {
   if (!job) return {}
   const finished = job.status === 'done'
-  const index = PHASES.findIndex((phase) => phase.stages.includes(job.stage))
+  const index = phases.findIndex((phase) => phase.stages.includes(job.stage))
   return Object.fromEntries(
-    PHASES.map((phase, i) => {
+    phases.map((phase, i) => {
       if (finished) return [phase.id, 'done']
       if (index === -1) return [phase.id, 'idle']
       if (i < index) return [phase.id, 'done']
@@ -55,6 +63,7 @@ export default function App() {
   const [learn, setLearn] = useState<LearnState | null>(null)
   const [peaks, setPeaks] = useState<Peaks | null>(null)
   const [job, setJob] = useState<JobState | null>(null)
+  const [chat, setChat] = useState<ChatStatus | null>(null)
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({})
   const [rejecting, setRejecting] = useState<string | null>(null)
@@ -105,6 +114,12 @@ export default function App() {
       setSelectedClipId(null)
       setVerdicts({})
       setPlayhead(0)
+      setChat(null)
+      try {
+        setChat(await api.chatStatus(sourceId))
+      } catch {
+        /* chat is optional - the source simply has none */
+      }
       try {
         const payload = await api.analysis(sourceId)
         setAnalysis(payload)
@@ -139,6 +154,14 @@ export default function App() {
           void refreshSources()
           pushToast('ok', `${first ? 'Clips ready' : 'Analysis finished with no clips'}`)
         }
+        if (next.status === 'done' && next.kind === 'chat' && selectedSourceId) {
+          try {
+            setChat(await api.chatStatus(selectedSourceId))
+          } catch {
+            /* the fetch succeeded; a status refresh is best-effort */
+          }
+          pushToast('ok', 'Chat replay saved — re-analyze to score audience reaction')
+        }
         if (next.status === 'error') {
           pushToast('error', next.error || 'Analysis failed')
         }
@@ -161,6 +184,16 @@ export default function App() {
     },
     [selectedSourceId, pushToast],
   )
+
+  const fetchChat = useCallback(async () => {
+    if (!selectedSourceId) return
+    try {
+      pushToast('info', 'Fetching chat replay…')
+      setJob(await api.fetchChat(selectedSourceId))
+    } catch (error) {
+      pushToast('error', `Chat fetch failed: ${(error as Error).message}`)
+    }
+  }, [selectedSourceId, pushToast])
 
   const handleIngest = useCallback(
     async (path: string) => {
@@ -321,7 +354,8 @@ export default function App() {
   }, [])
 
   const busy = Boolean(job && (job.status === 'running' || job.status === 'queued'))
-  const phases = phaseStates(job)
+  const shownPhases = job?.kind === 'chat' ? CHAT_PHASES : PHASES
+  const phases = phaseStates(job, shownPhases)
   const activeSource = sources.find((source) => source.id === selectedSourceId) ?? null
   const mediaSrc = selectedSourceId ? api.mediaUrl(selectedSourceId) : ''
 
@@ -366,6 +400,24 @@ export default function App() {
                 reel <b>{(analysis.reel_quality * 100).toFixed(0)}%</b>
               </span>
             ) : null}
+            {selectedSourceId && chat?.available ? (
+              <span
+                title={`${chat.messages.toLocaleString()} messages, covering ${Math.round(chat.coverage * 100)}% of the VOD`}
+              >
+                chat <b>{chat.messages.toLocaleString()}</b>
+              </span>
+            ) : null}
+            {selectedSourceId && chat?.twitch_vod && !chat.available ? (
+              <button
+                type="button"
+                className="btn sm ghost"
+                disabled={busy}
+                title="Download this VOD's chat replay — message rate is how audience reaction is scored"
+                onClick={() => void fetchChat()}
+              >
+                Fetch chat
+              </button>
+            ) : null}
             {selectedSourceId ? (
               <button
                 type="button"
@@ -381,7 +433,7 @@ export default function App() {
 
         {job ? (
           <div className="stagebar">
-            {PHASES.map((phase) => (
+            {shownPhases.map((phase) => (
               <span className="phase" key={phase.id} data-state={phases[phase.id] ?? 'idle'}>
                 <span className="tick" />
                 {phase.label}

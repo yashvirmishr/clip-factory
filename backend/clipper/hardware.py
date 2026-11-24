@@ -315,6 +315,10 @@ def download_model(model: dict, target_dir: Path, progress=None) -> Path:
 
 WHISPER_BINARIES = ("whisper-cli.exe", "whisper-cli", "main.exe", "main", "whisper.exe", "whisper")
 
+# A bare name is fine on POSIX; Windows also substitutes PATHEXT entries, which
+# is how "main" turns into main.CPL.
+_EXECUTABLE_SUFFIXES = {""} | ({".exe", ".com", ".bat", ".cmd"} if os.name == "nt" else set())
+
 
 def find_whisper_cli(search_dirs: list[Path] | tuple[Path, ...] = ()) -> str:
     """Locate a whisper.cpp binary without requiring the user to set a variable.
@@ -331,7 +335,10 @@ def find_whisper_cli(search_dirs: list[Path] | tuple[Path, ...] = ()) -> str:
         return explicit
     for name in WHISPER_BINARIES:
         found = _shutil.which(name)
-        if found:
+        # which() honours PATHEXT on Windows, so asking for the bare name "main"
+        # returns C:\Windows\System32\main.CPL - a Control Panel applet, not
+        # whisper. Only something actually executable counts as found.
+        if found and Path(found).suffix.lower() in _EXECUTABLE_SUFFIXES:
             return found
     candidates = list(search_dirs) + [Path.cwd() / "bin", Path.cwd() / "vendor"]
     for directory in candidates:

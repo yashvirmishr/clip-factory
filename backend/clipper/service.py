@@ -70,6 +70,7 @@ def ingest(
     """Register a source. A URL is fetched first, into the app media folder."""
     from .pipeline import fetch
 
+    origin = str(path).strip() if fetch.is_url(path) else ""
     if fetch.is_url(path):
         def download(fraction: float, detail: str) -> None:
             if progress:
@@ -97,8 +98,56 @@ def ingest(
             fps=info["fps"],
             has_audio=info["has_audio"],
             size_bytes=info["size_bytes"],
+            origin_url=origin,
         )
     )
+
+
+CHAT_FILE = "chat.json"
+
+
+def chat_path_for(source: SourceInfo) -> Path | None:
+    """The stored chat replay for a source, if one was fetched or dropped in."""
+    path = artifacts_for(source.id) / CHAT_FILE
+    return path if path.exists() else None
+
+
+def chat_status(source: SourceInfo) -> dict:
+    """Whether this source has chat, and where it would come from."""
+    from .pipeline import chat as chatmod
+
+    path = chat_path_for(source)
+    offsets = chatmod.read_dump(path) if path else []
+    info = chatmod.coverage(offsets, source.duration)
+    info["available"] = bool(offsets)
+    info["origin_url"] = source.origin_url
+    info["twitch_vod"] = chatmod.vod_id(source.origin_url or "")
+    return info
+
+
+def fetch_chat(
+    source: SourceInfo,
+    url: str | None = None,
+    progress: Progress | None = None,
+) -> dict:
+    """Download the chat replay for this source and store it as an artifact."""
+    from .pipeline import chat as chatmod
+
+    target = url or source.origin_url
+    video_id = chatmod.vod_id(target or "")
+    if not video_id:
+        raise chatmod.ChatError(
+            "chat replay only exists for Twitch VODs - give a twitch.tv/videos/<id> URL"
+        )
+
+    def report(fraction: float, detail: str) -> None:
+        if progress:
+            progress("chat", fraction, detail)
+
+    info = chatmod.fetch(target, artifacts_for(source.id) / CHAT_FILE, progress=report,
+                         client=None, max_comments=chatmod.MAX_COMMENTS)
+    info["available"] = True
+    return info
 
 
 def artifacts_for(source_id: str) -> Path:
@@ -257,12 +306,18 @@ def analyze(
         db.save_analysis(empty)
         return empty
 
+    if chat_path is None:
+        chat_path = chat_path_for(source)
     chat = load_chat_rate(chat_path, source.duration)
     available = {"audio", "excitement", "speech", "hook_lexicon"}
     if chat is not None:
         available.add("chat")
     else:
-        warnings.append("No chat replay - chat weight redistributed to other signals.")
+        if chat_path is not None:
+            # A file was there but nothing usable came out of it.
+            warnings.append("Chat file had no usable timestamps - chat weight redistributed.")
+        else:
+            warnings.append("No chat replay - chat weight redistributed to other signals.")
 
     progress("signals", 0.64, f"scoring {len(windows)} windows")
     raw: dict[str, list[float]] = {k: [] for k in ("audio", "excitement", "chat", "speech", "hook_lexicon")}

@@ -1,6 +1,7 @@
 import type {
   Analysis,
   Captions,
+  ChatStatus,
   Clip,
   Hardware,
   JobState,
@@ -84,6 +85,14 @@ export const api = {
     request<JobState>(`/sources/${sourceId}/analyze`, {
       method: 'POST',
       body: JSON.stringify({ limit: 10, force: false, ...options }),
+    }),
+
+  chatStatus: (sourceId: string) => request<ChatStatus>(`/sources/${sourceId}/chat`),
+
+  fetchChat: (sourceId: string) =>
+    request<JobState>(`/sources/${sourceId}/chat/fetch`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
 
   job: (jobId: string) => request<JobState>(`/jobs/${jobId}`),

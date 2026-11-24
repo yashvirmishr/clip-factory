@@ -20,6 +20,7 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 | Transcription: whisper.cpp adapter + SRT/VTT import + deterministic stub | working |
 | Word alignment (monotonic clamp, silence snapping, outlier repair) | working |
 | Signals, percentile fusion, sentence-aligned windows | working |
+| Chat replay: Twitch VOD fetch, coverage report, chat signal | working |
 | Quality gates + visible scorecard + reel quality score | working |
 | LLM re-ranking with GBNF-constrained JSON, plus a labelled stub scorer | working |
 | Diversity/overlap/dedupe selection | working |
@@ -147,6 +148,22 @@ accident.
 This needs `yt-dlp` (`pip install -r requirements.txt`). Without it the app still
 runs on local files and the URL route says exactly what to install.
 
+### Chat replay
+
+Chat is the one signal that knows what the audience reacted to, and on Twitch it
+is public. A source ingested from a `twitch.tv/videos/<id>` URL gets a **Fetch
+chat** action next to Analyze: it pages the same GraphQL endpoint the web player
+uses (no auth, no key), keeps only message offsets — not the text — and stores
+them beside the transcript. Analyze then picks the artifact up automatically, so
+re-running it scores message-rate spikes instead of redistributing the chat
+weight away. YouTube and local files show no button, because there is no replay
+to fetch.
+
+Offsets only is deliberate: scoring needs the beat, not what was said, so the
+artifact carries no chat content. The format is a JSON list of
+`{"content_offset_seconds": …}`, which is also what TwitchDownloader emits, so a
+hand-made dump works too.
+
 ### Getting a model
 
 Open **Hardware & models → Models**. Every curated model is listed with its size,
@@ -164,7 +181,7 @@ with no binary used to look exactly like "transcription is broken".
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 172 tests, ~25 s, includes real encodes
+./.venv/Scripts/python.exe -m pytest        # 194 tests, ~25 s, includes real encodes
 ./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
 ```
 
@@ -418,6 +435,7 @@ backend/clipper/
     signals.py            five signals, percentile normalisation, fusion
     windows.py            sentence-aligned candidate windows, scene snapping
     scenes.py             keyframe scene cuts, chapters, shot spans
+    chat.py               Twitch VOD chat replay (GraphQL, paged) -> chat signal
     framing.py            96x54 activity grid -> per-shot virtual camera path
     gates.py              G1 input gates, G2 structural gates
     scorecard.py          grounding check + visible scorecard
@@ -440,23 +458,21 @@ scripts/perf.py           measured resource report
 ```
 
 The sidecar binds `127.0.0.1` only. There is no account layer, no telemetry and
-no cloud path; the only network calls are the optional model download and URL
-imports, both opt-in.
+no cloud path; the only network calls are the optional model download, URL
+imports and the Twitch chat fetch you ask for, all opt-in.
 
 ---
 
 ## Where this goes next
 
-1. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
-   Twitch VODs so the chat weight stops being redistributed away.
-2. **Caption editing** — pages and warnings are visible, but word timings cannot
+1. **Caption editing** — pages and warnings are visible, but word timings cannot
    be dragged or merged.
-3. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
+2. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-4. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
+3. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
    checkout with Python installed and nothing else.
-5. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
+4. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
    two-person podcast it follows activity rather than the person talking. A YuNet
    ONNX pass plus mouth-activity scoring is the documented upgrade, and
    `CropPlan` is already the interface it would plug into.

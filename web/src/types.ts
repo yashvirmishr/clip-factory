@@ -76,6 +76,17 @@ export interface SourceInfo {
   fps: number
   has_audio: boolean
   size_bytes: number
+  origin_url: string
+}
+
+export interface ChatStatus {
+  messages: number
+  first: number
+  last: number
+  coverage: number
+  available: boolean
+  origin_url: string
+  twitch_vod: string
 }
 
 export interface SourceRow extends SourceInfo {

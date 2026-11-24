@@ -275,6 +275,38 @@ def test_activation_persists_to_config_json(client, tmp_path, monkeypatch):
         (SETTINGS.data_dir / "config.json").unlink(missing_ok=True)
 
 
+def test_chat_status_is_reported_for_a_source_without_chat(client, analyzed):
+    source, _ = analyzed
+    payload = client.get(f"/api/sources/{source.id}/chat").json()
+    assert payload["available"] is False
+    assert payload["messages"] == 0
+    assert payload["twitch_vod"] == ""
+
+
+def test_chat_fetch_refuses_a_source_that_is_not_a_twitch_vod(client, analyzed):
+    source, _ = analyzed
+    response = client.post(f"/api/sources/{source.id}/chat/fetch", json={})
+    assert response.status_code == 400
+    assert "twitch.tv/videos" in response.json()["detail"]
+
+
+def test_a_stored_chat_replay_reaches_the_analysis(client, analyzed):
+    """The point of the artifact: re-analysis scores chat instead of dropping it."""
+    from clipper.pipeline import chat as chatmod
+
+    source, _ = analyzed
+    target = service.artifacts_for(source.id) / service.CHAT_FILE
+    chatmod.write_dump(target, [10.0] * 90 + [20.0] * 90)
+
+    payload = client.get(f"/api/sources/{source.id}/chat").json()
+    assert payload["available"] is True
+    assert payload["messages"] == 180
+
+    result = service.analyze(source, limit=2, force=True)
+    assert not any("No chat replay" in warning for warning in result.warnings)
+    assert max(candidate.signals["chat"] for candidate in result.candidates) > 0
+
+
 def test_url_ingest_rejects_a_local_path(client):
     response = client.post("/api/sources/url", json={"path": "C:/media/stream.mp4"})
     assert response.status_code == 400
@@ -299,3 +331,5 @@ def test_ingest_accepts_a_url_without_touching_the_network(client, monkeypatch):
     assert calls["url"] == "https://example.com/vod/1"
     assert source.name == "Fetched stream"
     assert source.duration > 0
+    # The URL is kept: chat replay is fetched later, long after ingest.
+    assert source.origin_url == "https://example.com/vod/1"

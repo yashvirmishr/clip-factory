@@ -38,6 +38,10 @@ class IngestRequest(BaseModel):
     name: str | None = None
 
 
+class ChatRequest(BaseModel):
+    url: str | None = None
+
+
 class AnalyzeRequest(BaseModel):
     subtitle_path: str | None = None
     chat_path: str | None = None
@@ -165,6 +169,37 @@ def get_source(source_id: str) -> dict:
     if source is None:
         raise HTTPException(status_code=404, detail="source not found")
     return source.model_dump()
+
+
+@app.get("/api/sources/{source_id}/chat")
+def get_chat(source_id: str) -> dict:
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    return service.chat_status(source)
+
+
+@app.post("/api/sources/{source_id}/chat/fetch")
+def fetch_chat(source_id: str, request: ChatRequest | None = None) -> dict:
+    """Download a Twitch VOD's chat replay. A job - it is a paged network walk."""
+    from .pipeline import chat as chatmod
+
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    url = (request.url if request else None) or source.origin_url
+    if not chatmod.vod_id(url or ""):
+        raise HTTPException(
+            status_code=400,
+            detail="chat replay needs a Twitch VOD URL (twitch.tv/videos/<id>)",
+        )
+
+    def task(progress):
+        info = service.fetch_chat(source, url, progress=progress)
+        progress("chat", 1.0, f"{info['messages']:,} messages")
+        return info
+
+    return JOBS.submit("chat", task).to_dict()
 
 
 @app.post("/api/sources/{source_id}/analyze")
