@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 
 
@@ -187,6 +187,7 @@ class Settings:
     whisper_cli: str = ""
     whisper_model_path: str = ""
     vad_model_path: str = ""
+    llm_model_path: str = ""
     llama_url: str = ""
 
     def media_dir(self) -> Path:
@@ -209,18 +210,25 @@ class Settings:
 
 
 def _apply_overrides(settings: Settings, raw: dict) -> Settings:
+    scalar_fields = {f.name for f in fields(Settings)}
     for key, value in raw.items():
-        section = getattr(settings, key, None)
-        if section is None:
+        if key == "data_dir":
+            if value:
+                settings.data_dir = Path(value)
             continue
         if isinstance(value, dict):
+            section = getattr(settings, key, None)
+            if section is None or not is_dataclass(section):
+                continue
+            section_fields = {f.name for f in fields(section)}
             for k, v in value.items():
-                if isinstance(v, tuple):
-                    v = tuple(v)
-                if hasattr(section, k):
-                    setattr(section, k, v)
-        elif key == "data_dir":
-            settings.data_dir = Path(value)
+                if k in section_fields:
+                    setattr(section, k, tuple(v) if isinstance(v, list) else v)
+            continue
+        # Scalar settings (whisper_model_path, llama_url, ...) used to be dropped
+        # here, so anything the model manager activated vanished on next start.
+        if key in scalar_fields:
+            setattr(settings, key, value)
     return settings
 
 

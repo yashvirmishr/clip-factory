@@ -108,8 +108,10 @@ def _transcribe(
     progress: Progress,
     duration: float,
 ):
+    from .hardware import find_whisper_cli
+
     backend = resolve_backend(
-        whisper_cli=SETTINGS.whisper_cli,
+        whisper_cli=SETTINGS.whisper_cli or find_whisper_cli([SETTINGS.data_dir / "bin"]),
         whisper_model=SETTINGS.whisper_model_path,
         vad_model=SETTINGS.vad_model_path,
         subtitle_path=subtitle_path,

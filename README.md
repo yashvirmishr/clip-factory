@@ -29,15 +29,19 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 | Trim in/out with transcript, captions and gates kept in sync | working |
 | Feedback loop: decision log → personal re-ranker → few-shot memory → style profile | working |
 | Hardware probe + tier advisory + model recommendations | working |
+| Model manager: resumable downloads in-app, activation that survives restart | working |
 | Desktop shell (Electron + Python sidecar, orphan-proof) | working |
 | ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
-| FilmCraft handoff, `.otio` export, gold-set benchmark | **not yet built** |
+| Editor handoff: OTIO, FCP7 XML, CMX 3600 EDL, SRT, zip bundle | working |
+| Gold-set benchmark in CI, `filmcraft-cli` command schema | **not yet built** |
 
-The remaining honest gap is the editor handoff: this build finds, ranks, reviews,
-renders and explains clips on its own, but it does not yet push a timeline into
-FilmCraft or Premiere. Everything before that point is real — see
-`docs/render-frame.png` for a frame taken straight out of a rendered clip.
+The reel now leaves the app: one zip carries an OTIO timeline, an FCP7 XML, an
+EDL, per-clip SRT captions and a manifest, all with timecodes from the same
+functions. What is *not* built is driving `filmcraft-cli` directly, because that
+alpha project has not published its command schema — inventing one would be a
+handoff that fails on the user's machine. OTIO is its documented import path, so
+that is the path this uses.
 
 ---
 
@@ -110,6 +114,9 @@ cd web && npm install && cd ..
 cd web && npm run dev                                       # http://localhost:5173
 ```
 
+`PYTHONPATH=backend` matters: without it `python -m clipper` cannot find the
+package. `scripts/run.cmd` does all of this for you.
+
 Or use the desktop shell (builds the UI first):
 
 ```bash
@@ -124,10 +131,24 @@ Then in the UI: **Generate a demo stream → Analyze**, or paste a path to a rea
 VOD. With no model installed the app runs the deterministic stub scorer and says
 so on every clip.
 
+### Getting a model
+
+Open **Hardware & models → Models**. Every curated model is listed with its size,
+whether it fits the memory free *right now*, and whether it is already in use.
+Download is in-app, resumable, and leaves a SHA-256 beside the file so a truncated
+download is caught on the next run instead of at inference time.
+
+![Model manager](docs/ui-models.png)
+
+Transcription also needs a `whisper.cpp` binary, which is not shipped: drop
+`whisper-cli.exe` into `<data>in` or put it on `PATH`. The dialog tells you when
+that binary is missing rather than silently falling back to the stub — a model
+with no binary used to look exactly like "transcription is broken".
+
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 67 tests, ~9 s, includes a real end-to-end run
+./.venv/Scripts/python.exe -m pytest        # 148 tests, ~18 s, includes real encodes
 ./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
 ```
 
@@ -256,6 +277,38 @@ absolute path before the renderer `chdir`s into its work folder.
 
 ---
 
+## Handing off to an editor
+
+Rendering is the end of the line for a clip nobody wants to change. For a clip
+somebody will want to change, the handoff is a bundle:
+
+| File | For |
+|---|---|
+| `reel.otio` | OpenTimelineIO — Resolve, Premiere (adapter), FilmCraft |
+| `reel.xml` | FCP7 XML — native import in Premiere and Resolve |
+| `reel.edl` | CMX 3600 — the fallback that cannot go offline |
+| `captions/*.srt` | the pages, so burned-in text stays editable |
+| `manifest.json` | in/out, frames, timecode, hook, score, framing knots |
+| `render/*.mp4` | any clips already rendered, included when present |
+
+Four formats because no single one is accepted everywhere, and one `ClipSpec`
+behind all four. Media is **referenced by absolute path, never copied**: a
+two-hour VOD inside a zip is a mail attachment nobody can send.
+
+![Export panel](docs/ui-export.png)
+
+The part that matters is the test called `test_every_format_agrees_on_the_timeline`.
+Three backends derive the same clip's timing independently — ffmpeg's ASS events,
+the SRT cues, and OTIO's source range — and the test asserts they land on the
+same seconds. Without it, a handoff can retime captions by eight frames and
+nobody notices until the clip is posted.
+
+Drop-frame timecode is deliberately not implemented: it only differs from
+non-drop on 29.97/59.94 material past ~10 minutes, and these clips are 15–90 s.
+The limitation is written in the module rather than papered over.
+
+---
+
 ## Efficiency
 
 The design rule is `peak = max(ASR, LLM)` and never `ASR + LLM`. One job worker
@@ -308,6 +361,15 @@ backend/clipper/
     scorecard.py          grounding check + visible scorecard
     select.py             overlap / duplicate / diversity selection
     caption/group.py      caption pages, CPS limits, line budgets
+  render/                 ASS captions + ffmpeg argument construction
+  editors/                handoff to an NLE, one ClipSpec behind four formats
+    timecode.py           frame maths - the only place time is converted
+    spec.py               ClipSpec: the clip as every backend sees it
+    otio.py               OpenTimelineIO timeline
+    xmeml.py              FCP7 XML sequence
+    edl.py                CMX 3600 edit decision list
+    srt.py                caption sidecars
+    bundle.py             manifest + zip of all of the above
   llm/                    GBNF grammar, prompts, llama-server + stub scorers
   learn/                  decision log, re-ranker, few-shot memory, style profile
   hw/                     (hardware.py) probe, tier advisory, model manifest
@@ -323,14 +385,15 @@ imports, both opt-in.
 
 ## Where this goes next
 
-1. **FilmCraft handoff** — `filmcraft-cli mcp` command batches to build an
-   editable timeline from the same clip specs, with `.otio` as the exit path.
-2. **Model manager UI** — the manifest and resumable downloader exist; the UI
-   should drive them, so nobody has to set `CLIPPER_WHISPER_CLI` by hand.
-3. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
+1. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
    Twitch VODs so the chat weight stops being redistributed away.
-4. **Gold-set benchmark** — hand-labelled moments per fixture video, scored in
-   CI so a change that makes picks worse fails the build.
-5. **Caption drift guard** — the renderer and the editor preview are two code
-   paths for the same page model; add a cross-render assertion before FilmCraft
-   lands so they cannot disagree silently.
+2. **Gold-set benchmark** — hand-labelled moments per fixture video, scored in
+   CI so a change that makes picks worse fails the build. The scorecard measures
+   the clip; nothing yet measures the *picks* against a human ranking.
+3. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
+   its command schema. OTIO import ("File → Import Timeline") works today, so
+   this is a convenience, not a capability.
+4. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
+   two-person podcast it follows activity rather than the person talking. A YuNet
+   ONNX pass plus mouth-activity scoring is the documented upgrade, and
+   `CropPlan` is already the interface it would plug into.

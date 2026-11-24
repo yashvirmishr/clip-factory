@@ -280,6 +280,91 @@ def set_hook(source_id: str, clip_id: str, request: HookRequest) -> dict:
     return {"ok": True, "hook": request.hook, "state": LEARNER.state()}
 
 
+@app.get("/api/sources/{source_id}/export")
+def export_reel(source_id: str, format: str = "bundle"):
+    """Hand a clip decision to an NLE: OTIO, FCP7 XML, EDL, SRT or a zip of all.
+
+    Media is referenced by absolute path, never copied into the bundle - a
+    two-hour VOD in a zip is a mail attachment nobody can send.
+    """
+    from fastapi import Response
+
+    from .editors import FORMATS, build_export, specs_for
+    from .render import renders_dir
+
+    source = db.get_source(source_id)
+    analysis = db.get_analysis(source_id)
+    if source is None or analysis is None:
+        raise HTTPException(status_code=404, detail="source has no analysis yet")
+
+    fmt = format.lower().strip()
+    if fmt not in FORMATS:
+        raise HTTPException(status_code=400, detail=f"format must be one of {FORMATS}")
+
+    title = f"{Path(source.name).stem} reel"
+    from .editors import bundle, specs_for
+
+    specs = specs_for(source, analysis)
+    if not specs:
+        raise HTTPException(status_code=409, detail="no selected clips to export")
+
+    if fmt == "bundle":
+        # If clips were rendered already, ship them alongside the edit decisions.
+        renders = sorted(renders_dir().glob("*.mp4"))
+        wanted = [r for r in renders if any(r.name.startswith(s.id) for s in specs)]
+        members = bundle.files(specs, renders=wanted, title=title)
+        filename = f"{bundle.safe_name(title)}.zip"
+        media_type = "application/zip"
+        payload = bundle.zip_bytes(members, title)
+    else:
+        try:
+            filename, media_type, payload = build_export(source, analysis, fmt, title)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/models")
+def list_models() -> dict:
+    """Model manifest with installed / active / fits-this-machine status."""
+    from . import models
+
+    return models.summary()
+
+
+@app.post("/api/models/{model_id}/download")
+def download_model(model_id: str) -> dict:
+    from . import models
+
+    if models.find(model_id) is None:
+        raise HTTPException(status_code=404, detail="unknown model")
+
+    def task(progress):
+        return models.download(model_id, progress=progress)
+
+    return JOBS.submit("download", task).to_dict()
+
+
+@app.post("/api/models/{model_id}/activate")
+def activate_model(model_id: str) -> dict:
+    """Point the pipeline at a downloaded model and persist the choice."""
+    from . import models
+
+    try:
+        return models.activate(model_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/render/presets")
 def render_presets() -> list[dict]:
     from .render.ass import PRESETS, style_summary

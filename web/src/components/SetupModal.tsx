@@ -1,4 +1,5 @@
 import type { Hardware } from '../types'
+import { ModelList } from './ModelList'
 
 interface Props {
   hardware: Hardware | null
@@ -72,32 +73,13 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
 
               <div className="panel">
                 <header className="panel-head">
-                  <span className="label">Recommended</span>
+                  <span className="label">Models</span>
+                  <span className="mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-3)' }}>
+                    download · use
+                  </span>
                 </header>
-                <div>
-                  {(
-                    [
-                      { role: 'Transcription', model: hardware.advice.asr },
-                      { role: 'Voice activity', model: hardware.advice.vad },
-                      { role: 'Scoring pass', model: hardware.advice.llm_scoring },
-                      { role: 'Hook polish', model: hardware.advice.llm_polish },
-                    ] as { role: string; model: Hardware['advice']['asr'] }[]
-                  ).map(({ role, model }) =>
-                    model ? (
-                      <div className="model-row" key={role}>
-                        <div>
-                          <div>{model.label}</div>
-                          <div className="speed">
-                            {role} · {model.speed}
-                          </div>
-                        </div>
-                        <div className="size">{model.size_gb} GB</div>
-                        <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
-                          tier {model.min_tier}+
-                        </div>
-                      </div>
-                    ) : null,
-                  )}
+                <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <ModelList />
                 </div>
               </div>
 
@@ -115,9 +97,9 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
               </div>
 
               <p className="panel-note" style={{ color: 'var(--ink-3)' }}>
-                Model downloads are curated and resumed in the desktop build. Until a model is
-                installed, analysis runs with the deterministic stub scorer, which is labelled
-                everywhere it surfaces.
+                Downloads are resumable and every file gets a local SHA-256 so a truncated download
+                is caught on the next run. Until a model is installed, analysis runs with the
+                deterministic stub scorer, which is labelled everywhere it surfaces.
               </p>
             </>
           )}

@@ -1,4 +1,6 @@
 import json
+import zipfile
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
@@ -189,3 +191,85 @@ def test_framing_endpoint_returns_a_plan_or_explains_its_absence(client, analyze
         assert payload["plan"]["crop_w"] > 0
         assert payload["plan"]["knots"]
         assert payload["expression"]
+
+
+def test_export_serves_each_editor_format(client, analyzed):
+    source, _ = analyzed
+    expectations = {
+        "otio": "application/json",
+        "fcpxml": "application/xml",
+        "edl": "text/plain",
+        "srt": "text/plain",
+        "bundle": "application/zip",
+    }
+    for fmt, media_type in expectations.items():
+        response = client.get(f"/api/sources/{source.id}/export?format={fmt}")
+        assert response.status_code == 200, fmt
+        assert response.headers["content-type"].startswith(media_type)
+        assert "attachment" in response.headers["content-disposition"]
+        assert len(response.content) > 100
+
+
+def test_export_bundle_has_the_edit_decision_list_and_captions(client, analyzed):
+    source, result = analyzed
+    payload = client.get(f"/api/sources/{source.id}/export?format=bundle").content
+    with zipfile.ZipFile(BytesIO(payload)) as archive:
+        names = archive.namelist()
+        assert "reel.otio" in names and "reel.xml" in names and "reel.edl" in names
+        manifest = json.loads(archive.read("manifest.json"))
+        ranked = [c for c in result.candidates if c.rank]
+        assert manifest["clip_count"] == len(ranked)
+        assert manifest["media_embedded"] is False
+        assert any(n.startswith("captions/") for n in names)
+
+
+def test_export_rejects_an_unknown_format(client, analyzed):
+    source, _ = analyzed
+    assert client.get(f"/api/sources/{source.id}/export?format=premiere9").status_code == 400
+
+
+def test_models_endpoint_reports_installed_and_fit(client):
+    payload = client.get("/api/models").json()
+    assert payload["tier"] in {"A", "B", "C", "D", "E"}
+    assert payload["models"]
+    entry = payload["models"][0]
+    for field in ("id", "kind", "label", "size_gb", "installed", "active", "fits"):
+        assert field in entry
+    assert payload["available_gb"] >= 0
+    assert set(payload["active"]) >= {"asr", "vad", "llm"}
+
+
+def test_downloading_an_unknown_model_is_a_404(client):
+    assert client.post("/api/models/not-a-model/download").status_code == 404
+
+
+def test_activating_a_model_that_is_not_downloaded_is_refused(client):
+    response = client.post("/api/models/qwen2.5-14b-q4/activate")
+    assert response.status_code == 409
+    assert "download" in response.json()["detail"]
+
+
+def test_activation_persists_to_config_json(client, tmp_path, monkeypatch):
+    from clipper import models
+
+    model = models.find("whisper-small-en")
+    staged = models.models_dir() / model["filename"]
+    staged.write_bytes(b"\0" * 4096)
+    try:
+        response = client.post("/api/models/whisper-small-en/activate").json()
+        assert response["ok"] is True
+        assert response["active"]["asr"] == str(staged)
+
+        # It has to survive a restart, which means it has to be on disk.
+        saved = json.loads((SETTINGS.data_dir / "config.json").read_text("utf-8"))
+        assert saved["whisper_model_path"] == str(staged)
+
+        # And be re-applied when settings are loaded again.
+        from clipper.config import Settings, _apply_overrides
+
+        reloaded = _apply_overrides(Settings(), saved)
+        assert reloaded.whisper_model_path == str(staged)
+    finally:
+        staged.unlink(missing_ok=True)
+        staged.with_suffix(staged.suffix + ".sha256").unlink(missing_ok=True)
+        (SETTINGS.data_dir / "config.json").unlink(missing_ok=True)

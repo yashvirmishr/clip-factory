@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, formatTime } from '../api'
 import type { Captions, Clip, Verdict } from '../types'
 import { GateWarnings, Panel, ScoreBars, TruthList } from './bits'
+import { ExportPanel } from './ExportPanel'
 import { RenderPanel } from './RenderPanel'
 import { TrimPanel } from './TrimPanel'
 
@@ -16,6 +17,7 @@ interface Props {
   seekRequest: { seconds: number; nonce: number } | null
   onHookSaved: (clipId: string, hook: string) => void
   onClipUpdated: (clip: Clip) => void
+  clipCount: number
 }
 
 const SEVERITY_COPY: Record<string, string> = {
@@ -34,6 +36,7 @@ export function Inspector({
   seekRequest,
   onHookSaved,
   onClipUpdated,
+  clipCount,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [hook, setHook] = useState('')
@@ -271,6 +274,8 @@ export function Inspector({
         />
 
         <RenderPanel sourceId={sourceId} clipId={clip.id} />
+
+        <ExportPanel sourceId={sourceId} clipCount={clipCount} />
 
         <div className="panel-note" style={{ color: 'var(--ink-3)' }}>
           Transcript window: “{clip.text.slice(0, 260)}

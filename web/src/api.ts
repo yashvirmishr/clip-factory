@@ -5,6 +5,7 @@ import type {
   Hardware,
   JobState,
   LearnState,
+  ModelsPayload,
   Peaks,
   SourceInfo,
   SourceRow,
@@ -63,6 +64,17 @@ export const api = {
 
   captions: (sourceId: string, clipId: string) =>
     request<Captions>(`/sources/${sourceId}/clips/${clipId}/captions`),
+
+  models: () => request<ModelsPayload>('/models'),
+
+  downloadModel: (modelId: string) =>
+    request<JobState>(`/models/${modelId}/download`, { method: 'POST' }),
+
+  activateModel: (modelId: string) =>
+    request<{ ok: boolean; active: ModelsPayload['active']; warning: string | null }>(
+      `/models/${modelId}/activate`,
+      { method: 'POST' },
+    ),
 
   renderPresets: () =>
     request<{ key: string; label: string; font: string; size: number; karaoke: string }[]>(

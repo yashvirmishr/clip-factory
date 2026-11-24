@@ -568,6 +568,7 @@ export default function App() {
             seekRequest={seekRequest}
             onHookSaved={handleHookSaved}
             onClipUpdated={handleClipUpdated}
+            clipCount={analysis?.candidates.filter((clip) => clip.rank).length ?? 0}
           />
         </div>
       </div>

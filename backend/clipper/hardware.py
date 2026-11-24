@@ -311,3 +311,32 @@ def download_model(model: dict, target_dir: Path, progress=None) -> Path:
                 if progress and total:
                     progress(min(1.0, written / total))
     return dest
+
+
+WHISPER_BINARIES = ("whisper-cli.exe", "whisper-cli", "main.exe", "main", "whisper.exe", "whisper")
+
+
+def find_whisper_cli(search_dirs: list[Path] | tuple[Path, ...] = ()) -> str:
+    """Locate a whisper.cpp binary without requiring the user to set a variable.
+
+    Order: an explicit path, then ``PATH``, then a ``bin`` folder next to the app
+    data. A model with no binary used to fall back to the stub *silently*, which
+    looks exactly like "transcription is broken" - so the answer to "is whisper
+    available" now lives in one place that the UI can ask.
+    """
+    import shutil as _shutil
+
+    explicit = (os.environ.get("CLIPPER_WHISPER_CLI") or "").strip()
+    if explicit and Path(explicit).exists():
+        return explicit
+    for name in WHISPER_BINARIES:
+        found = _shutil.which(name)
+        if found:
+            return found
+    candidates = list(search_dirs) + [Path.cwd() / "bin", Path.cwd() / "vendor"]
+    for directory in candidates:
+        for name in WHISPER_BINARIES:
+            candidate = Path(directory) / name
+            if candidate.exists():
+                return str(candidate)
+    return ""

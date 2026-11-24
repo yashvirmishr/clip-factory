@@ -198,3 +198,30 @@ export interface Hardware {
 }
 
 export type Verdict = 'approve' | 'reject' | 'undo'
+
+export interface ModelStatus {
+  id: string
+  kind: 'asr' | 'vad' | 'llm' | string
+  label: string
+  size_gb: number
+  min_tier: string
+  speed: string
+  filename: string
+  installed: boolean
+  active: boolean
+  fits: boolean
+  path: string
+  tier_ok: boolean
+}
+
+export interface ModelsPayload {
+  tier: string
+  models_dir: string
+  available_gb: number
+  reserve_gb: number
+  models: ModelStatus[]
+  active: { asr: string; vad: string; llm: string; whisper_cli: string; llama_url: string }
+  recommended: { asr: string | null; llm: string | null }
+  whisper_cli: string
+  asr_ready: boolean
+}
