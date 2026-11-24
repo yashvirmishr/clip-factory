@@ -34,7 +34,8 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 | ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
 | Editor handoff: OTIO, FCP7 XML, CMX 3600 EDL, SRT, zip bundle | working |
-| Gold-set benchmark in CI, `filmcraft-cli` command schema | **not yet built** |
+| Gold-set pick-quality harness + CI regression gate | working |
+| `filmcraft-cli` command schema, URL ingest, installer | **not yet built** |
 
 The reel now leaves the app: one zip carries an OTIO timeline, an FCP7 XML, an
 EDL, per-clip SRT captions and a manifest, all with timecodes from the same
@@ -148,7 +149,7 @@ with no binary used to look exactly like "transcription is broken".
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 148 tests, ~18 s, includes real encodes
+./.venv/Scripts/python.exe -m pytest        # 162 tests, ~22 s, includes real encodes
 ./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
 ```
 
@@ -173,6 +174,52 @@ Five gates, all deterministic except the self-critique:
 
 Windows that fail a block gate never reach the LLM at all. That is the whole
 point: the model is a re-ranker, not the detector.
+
+---
+
+## Does it pick good clips?
+
+The scorecard measures a *clip*: is it self-contained, does it open on a hook. It
+says nothing about whether the picker chose the right five moments out of two
+hours, which is the only thing a user actually judges. So pick quality is measured
+separately, against hand-labelled moments:
+
+```bash
+./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json
+```
+
+A gold file is JSON - a source, notes on why these moments, and spans:
+
+```json
+{ "source": "stream.mp4",
+  "notes": "why these moments",
+  "moments": [{ "start": 51.6, "end": 63.7, "label": "the bit about breaking it" }] }
+```
+
+Current score on the shipped fixture:
+
+| Metric | Value |
+|---|---|
+| precision@5 | 0.80 |
+| recall | 0.80 |
+| F1 | 0.80 |
+| mean coverage of a hit | 0.80 |
+| duplicates | 0 |
+
+The scoring rules are deliberate:
+
+* **No partial credit.** A clip covering 35% of a labelled moment is a miss. A
+  clip that catches the last three seconds of a story is not that story.
+* **Duplicates count against precision.** Two picks on one moment is the
+  second-most common failure after missing it entirely.
+* **It scores the ranked reel**, not every window the pipeline ever built, because
+  the reel is what a user sees.
+
+`test_picker_still_finds_the_labelled_moments` runs this in CI with floors set
+below the current score. It is a regression guard, not a target: the shipped
+fixture is synthetic, so passing it proves the picker did not get *worse*, not
+that it is good on real footage. Adding a real VOD means dropping a JSON file in
+`benchmarks/gold/` and pointing the script at it.
 
 ---
 
@@ -387,13 +434,16 @@ imports, both opt-in.
 
 1. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
    Twitch VODs so the chat weight stops being redistributed away.
-2. **Gold-set benchmark** — hand-labelled moments per fixture video, scored in
-   CI so a change that makes picks worse fails the build. The scorecard measures
-   the clip; nothing yet measures the *picks* against a human ranking.
-3. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
+2. **URL ingest** — the ingest field takes a Windows path and nothing else. A
+   `yt-dlp` step for Twitch/YouTube VODs is the largest functional hole left.
+3. **Caption editing** — pages and warnings are visible, but word timings cannot
+   be dragged or merged.
+4. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-4. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
+5. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
+   checkout with Python installed and nothing else.
+6. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
    two-person podcast it follows activity rather than the person talking. A YuNet
    ONNX pass plus mouth-activity scoring is the documented upgrade, and
    `CropPlan` is already the interface it would plug into.

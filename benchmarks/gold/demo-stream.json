@@ -1,0 +1,36 @@
+{
+  "source": "demo-stream.mp4",
+  "notes": "Hand-labelled from the deterministic stub transcript of `Generate a demo stream`. The transcript repeats on a ~90 s cycle, so labels are spread across both cycles rather than listing every repeat: a pick landing on a repeated line at another timestamp is a genuine miss under time-overlap scoring. Selection criterion was a human one - would this beat stand alone as a short? Hook, a turn, or a number, then a payoff.",
+  "moments": [
+    {
+      "start": 51.6,
+      "end": 63.7,
+      "label": "plan: break it, buy it, pretend it was always broken -> unplug it before the update",
+      "weight": 1.0
+    },
+    {
+      "start": 77.7,
+      "end": 94.9,
+      "label": "chat tells me to stop / six hours and the room looks terrible / never trust an autosave",
+      "weight": 1.0
+    },
+    {
+      "start": 96.3,
+      "end": 105.6,
+      "label": "wait, wait, say that again slowly - does not sound legal -> speedrunners in four seconds",
+      "weight": 1.0
+    },
+    {
+      "start": 119.5,
+      "end": 130.6,
+      "label": "money is not real - three hundred people watched me fail that input live",
+      "weight": 1.0
+    },
+    {
+      "start": 138.5,
+      "end": 148.5,
+      "label": "everyone said it was impossible -> you will not believe what happened next",
+      "weight": 1.0
+    }
+  ]
+}
