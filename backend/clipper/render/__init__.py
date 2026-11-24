@@ -30,9 +30,23 @@ def render_clip(
     force: bool = False,
     progress=None,
 ) -> dict:
+    from ..pipeline.framing import plan_for_clip
+    from ..pipeline.scenes import cuts_for
+
     if framing not in FRAMINGS:
         framing = "blur"
     style = get_preset(preset_key)
+
+    # Resolve "auto" before naming the file: a failed sampling pass falls back to
+    # a centred crop, and the filename must not claim otherwise.
+    plan = None
+    if framing == "auto":
+        if progress:
+            progress("framing", 0.12, "finding the subject")
+        plan = plan_for_clip(source, candidate, cuts_for(source.path, None, source.duration))
+        if plan is None:
+            framing = "crop"
+
     out = renders_dir() / f"{candidate.id}-{style.key}-{framing}.mp4"
 
     if out.exists() and out.stat().st_size > 10_000 and not force:
@@ -43,13 +57,14 @@ def render_clip(
             "duration": round(ffprobe_duration(out), 2),
             "style": style_summary(style),
             "framing": framing,
+            "crop": plan.summary() if plan else None,
         }
 
     pages = group_words(candidate.words, SETTINGS.captions)
     if not pages:
         raise RenderError("this clip has no caption pages to burn")
     if progress:
-        progress("captions", 0.15, f"{len(pages)} pages")
+        progress("captions", 0.18, f"{len(pages)} pages")
 
     work = renders_dir() / candidate.id
     ass_path = write_ass(
@@ -69,9 +84,14 @@ def render_clip(
         ass_name=ass_path.name,
         framing=framing,
         encoder=choose_encoder(),
+        crop_w=plan.crop_w if plan else 0,
+        crop_expr=plan.expression() if plan else "",
     )
     if progress:
-        progress("render", 0.35, f"{spec.encoder} · {framing}")
+        detail = f"{spec.encoder} · {framing}"
+        if plan:
+            detail += f" · {len(plan.knots)} knot crop"
+        progress("render", 0.35, detail)
 
     result = subprocess.run(
         build_args(spec), cwd=str(work), capture_output=True, text=True, timeout=3600
@@ -99,4 +119,5 @@ def render_clip(
         "style": style_summary(style),
         "framing": framing,
         "encoder": spec.encoder,
+        "crop": plan.summary() if plan else None,
     }

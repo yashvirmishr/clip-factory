@@ -245,8 +245,19 @@ export default function App() {
     [refreshLearn],
   )
 
-  const seekClip = useCallback((seconds: number) => {
-    setSeekRequest({ seconds, nonce: Date.now() })
+  const handleClipUpdated = useCallback((updated: Clip) => {
+    setAnalysis((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        candidates: current.candidates.map((clip) =>
+          clip.id === updated.id ? updated : clip,
+        ),
+      }
+    })
+  }, [])
+
+  const seekClip = useCallback((seconds: number) => {    setSeekRequest({ seconds, nonce: Date.now() })
     setPlayhead(seconds)
   }, [])
 
@@ -556,6 +567,7 @@ export default function App() {
             onTime={setPlayhead}
             seekRequest={seekRequest}
             onHookSaved={handleHookSaved}
+            onClipUpdated={handleClipUpdated}
           />
         </div>
       </div>

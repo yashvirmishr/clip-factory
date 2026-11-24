@@ -118,6 +118,37 @@ class CaptionConfig:
 
 
 @dataclass
+class SceneConfig:
+    """Scene-cut detection.
+
+    Cuts are used to nudge window boundaries onto real edits and to give the
+    reframer one framing decision per shot. Detection stays cheap, so its
+    tolerance stays sub-second and it never decides *which* moments matter.
+    """
+
+    enabled: bool = True
+    threshold: float = 0.32
+    min_gap_s: float = 1.0
+    snap_tolerance_s: float = 0.75
+    chapter_seconds: float = 300.0
+    # Sources longer than this skip the dense detection fallback: decoding two
+    # hours of video for a cosmetic edge nudge is not a good trade on a laptop.
+    dense_max_s: float = 2400.0
+
+
+@dataclass
+class FramingConfig:
+    """Subject-aware vertical crop (the "auto" framing mode)."""
+
+    sample_fps: float = 2.0
+    grid_width: int = 96
+    grid_height: int = 54
+    motion_weight: float = 0.75
+    skin_weight: float = 0.25
+    min_shot_s: float = 0.4
+
+
+@dataclass
 class LearnConfig:
     """Feedback loop tuning."""
 
@@ -146,6 +177,8 @@ class Settings:
     weights: SignalWeights = field(default_factory=SignalWeights)
     blend: BlendConfig = field(default_factory=BlendConfig)
     gates: GateConfig = field(default_factory=GateConfig)
+    scenes: SceneConfig = field(default_factory=SceneConfig)
+    framing: FramingConfig = field(default_factory=FramingConfig)
     captions: CaptionConfig = field(default_factory=CaptionConfig)
     learn: LearnConfig = field(default_factory=LearnConfig)
     hardware: HardwareConfig = field(default_factory=HardwareConfig)

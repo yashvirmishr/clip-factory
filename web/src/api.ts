@@ -1,6 +1,7 @@
 import type {
   Analysis,
   Captions,
+  Clip,
   Hardware,
   JobState,
   LearnState,
@@ -85,6 +86,25 @@ export const api = {
       `/sources/${sourceId}/clips/${clipId}/hook`,
       { method: 'POST', body: JSON.stringify({ hook }) },
     ),
+
+  trimClip: (sourceId: string, clipId: string, start: number, end: number) =>
+    request<Clip>(`/sources/${sourceId}/clips/${clipId}/trim`, {
+      method: 'POST',
+      body: JSON.stringify({ start, end }),
+    }),
+
+  framingPlan: (sourceId: string, clipId: string) =>
+    request<{
+      cuts: number[]
+      shots: [number, number][]
+      plan: {
+        method: string
+        crop_w: number
+        knots: [number, number][]
+        confidence: number
+      } | null
+      expression: string
+    }>(`/sources/${sourceId}/clips/${clipId}/framing`),
 
   learn: () => request<LearnState>('/learn/state'),
 

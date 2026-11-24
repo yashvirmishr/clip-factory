@@ -16,12 +16,20 @@ interface RenderResult {
   encoder?: string
   pages?: number
   cached?: boolean
+  crop?: { method: string; crop_w: number; knots: number[][]; confidence: number } | null
 }
 
 const FRAMINGS = [
+  { id: 'auto', label: 'Auto' },
   { id: 'blur', label: 'Blur pad' },
   { id: 'crop', label: 'Crop' },
 ]
+
+const FRAMING_HINT: Record<string, string> = {
+  auto: 'Follows the subject and cuts a 9:16 column per shot',
+  blur: 'Full picture fitted over a blurred fill',
+  crop: 'Centre crop, no tracking',
+}
 
 /**
  * Render is the one stage that costs real wall-clock time, so it reports its
@@ -30,7 +38,7 @@ const FRAMINGS = [
 export function RenderPanel({ sourceId, clipId }: { sourceId: string; clipId: string }) {
   const [presets, setPresets] = useState<Preset[]>([])
   const [preset, setPreset] = useState('hormozi')
-  const [framing, setFraming] = useState('blur')
+  const [framing, setFraming] = useState('auto')
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [pct, setPct] = useState(0)
   const [detail, setDetail] = useState('')
@@ -133,12 +141,16 @@ export function RenderPanel({ sourceId, clipId }: { sourceId: string; clipId: st
               className="chip"
               data-on={framing === item.id}
               disabled={running}
+              title={FRAMING_HINT[item.id]}
               onClick={() => setFraming(item.id)}
             >
               {item.label}
             </button>
           ))}
         </div>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+          {FRAMING_HINT[framing]}
+        </span>
 
         {running ? (
           <>
@@ -162,6 +174,7 @@ export function RenderPanel({ sourceId, clipId }: { sourceId: string; clipId: st
             <video src={result.url} controls preload="metadata" />
             <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 6 }}>
               {result.duration}s · {result.pages ?? 0} caption pages
+              {result.crop ? ` · ${result.crop.knots.length} framing knots` : ''}
               {result.cached ? ' · cached' : ''} ·{' '}
               <a href={result.url} download={result.filename} style={{ color: 'var(--tungsten)' }}>
                 download

@@ -3,6 +3,7 @@ import { api, formatTime } from '../api'
 import type { Captions, Clip, Verdict } from '../types'
 import { GateWarnings, Panel, ScoreBars, TruthList } from './bits'
 import { RenderPanel } from './RenderPanel'
+import { TrimPanel } from './TrimPanel'
 
 interface Props {
   sourceId: string
@@ -14,6 +15,7 @@ interface Props {
   onTime: (seconds: number) => void
   seekRequest: { seconds: number; nonce: number } | null
   onHookSaved: (clipId: string, hook: string) => void
+  onClipUpdated: (clip: Clip) => void
 }
 
 const SEVERITY_COPY: Record<string, string> = {
@@ -31,6 +33,7 @@ export function Inspector({
   onTime,
   seekRequest,
   onHookSaved,
+  onClipUpdated,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [hook, setHook] = useState('')
@@ -259,6 +262,13 @@ export function Inspector({
             <p className="panel-note">No caption pages for this clip.</p>
           )}
         </Panel>
+
+        <TrimPanel
+          sourceId={sourceId}
+          clip={clip}
+          onTrimmed={onClipUpdated}
+          onSeek={onSeek}
+        />
 
         <RenderPanel sourceId={sourceId} clipId={clip.id} />
 

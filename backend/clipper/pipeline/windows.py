@@ -101,6 +101,65 @@ def _dedupe(windows: list[Window]) -> list[Window]:
     return out
 
 
+def snap_windows(
+    windows: list[Window],
+    utterances: list[Utterance],
+    cuts: list[float],
+    tolerance: float = 0.75,
+    min_s: float = 8.0,
+    max_s: float = 90.0,
+) -> list[Window]:
+    """Nudge window edges onto nearby scene cuts.
+
+    A clip that starts two frames before an edit looks like a mistake, so edges
+    within ``tolerance`` of a cut are moved onto it. The transcript is rebuilt
+    from the utterances the new span covers, which is what keeps text, captions
+    and gates consistent with the timecode instead of silently disagreeing with
+    it. Windows that would fall outside ``min_s..max_s`` are left alone.
+    """
+    if not cuts:
+        return windows
+    from .scenes import nearest_cut
+
+    snapped: list[Window] = []
+    for window in windows:
+        start, end = window.start, window.end
+
+        cut = nearest_cut(start, cuts, tolerance)
+        if cut is not None and cut < start:
+            start = cut
+
+        cut = nearest_cut(end, cuts, tolerance)
+        if cut is not None and cut > end:
+            end = cut
+
+        duration = end - start
+        if (start, end) == (window.start, window.end) or not (min_s <= duration <= max_s):
+            snapped.append(window)
+            continue
+
+        covered = [
+            u for u in utterances if u.end > start + 1e-6 and u.start < end - 1e-6
+        ]
+        if not covered:
+            snapped.append(window)
+            continue
+        text, probs = _join(covered)
+        snapped.append(
+            Window(
+                start=round(start, 3),
+                end=round(end, 3),
+                text=text,
+                word_probs=probs,
+                utterance_count=len(covered),
+                first_terminal=True,
+                last_terminal=bool(covered[-1].terminal),
+                starts_with_deictic=window.starts_with_deictic,
+            )
+        )
+    return snapped
+
+
 def stride_windows(duration: float, cfg: WindowConfig) -> list[tuple[float, float]]:
     """Fallback for sources with no usable transcript."""
     out: list[tuple[float, float]] = []

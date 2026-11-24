@@ -17,7 +17,7 @@ from pathlib import Path
 
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 
-FRAMINGS = ("blur", "crop")
+FRAMINGS = ("auto", "blur", "crop")
 
 
 @dataclass
@@ -36,6 +36,10 @@ class RenderSpec:
     threads: int = 0
     blur_sigma: int = 24
     loudness_lufs: float = -14.0
+    # "auto" framing only: source-pixel width of the 9:16 column and the
+    # time-varying x expression produced by pipeline.framing.
+    crop_w: int = 0
+    crop_expr: str = ""
 
     @property
     def duration_s(self) -> float:
@@ -91,6 +95,15 @@ def working_encoders() -> tuple[str, ...]:
 def build_filter_graph(spec: RenderSpec) -> str:
     w, h = spec.width, spec.height
     ass = f"ass={spec.ass_name}"
+    if spec.framing == "auto" and spec.crop_w > 0:
+        # Follow the subject: crop a 9:16 column out of the source, moving x per
+        # frame, then scale to the delivery size. Quotes keep ffmpeg's filter
+        # parser from reading the commas inside the if() chain as separators.
+        x = spec.crop_expr or "0"
+        return (
+            f"[0:v]crop={spec.crop_w}:ih:x='{x}':y=0,"
+            f"scale={w}:{h},{ass}[v]"
+        )
     if spec.framing == "crop":
         return (
             f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"

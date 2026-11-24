@@ -136,3 +136,56 @@ def test_ffmpeg_probe_reports_libass(client):
     payload = client.get("/api/ffmpeg").json()
     assert payload["available"] is True
     assert payload["libass"] is True
+
+
+def test_trim_moves_the_bounds_and_recuts_the_transcript(client, analyzed):
+    source, result = analyzed
+    clip = next(c for c in result.candidates if c.rank and c.duration > 10)
+    new_start = clip.start + 1.5
+    new_end = clip.end - 1.0
+
+    payload = client.post(
+        f"/api/sources/{source.id}/clips/{clip.id}/trim",
+        json={"start": new_start, "end": new_end},
+    ).json()
+    assert payload["start"] == pytest.approx(new_start, abs=1e-3)
+    assert payload["end"] == pytest.approx(new_end, abs=1e-3)
+    # Words outside the new window are gone, and every surviving word is inside it.
+    assert payload["words"]
+    assert all(w["start"] >= new_start - 1e-3 and w["end"] <= new_end + 1e-3 for w in payload["words"])
+    assert payload["text"] == " ".join(w["text"] for w in payload["words"])
+
+    refreshed = client.get(f"/api/sources/{source.id}/analysis").json()
+    stored = next(c for c in refreshed["candidates"] if c["id"] == clip.id)
+    assert stored["start"] == pytest.approx(new_start, abs=1e-3)
+
+
+def test_trim_refuses_to_make_an_unusable_clip(client, analyzed):
+    source, result = analyzed
+    clip = next(c for c in result.candidates if c.rank)
+    payload = client.post(
+        f"/api/sources/{source.id}/clips/{clip.id}/trim",
+        json={"start": clip.end - 1.0, "end": clip.end},
+    ).json()
+    # Clamped to the minimum usable length instead of accepting a 1 s clip.
+    assert payload["end"] - payload["start"] >= 4.9
+
+
+def test_trim_rejects_a_missing_clip(client, analyzed):
+    source, _ = analyzed
+    response = client.post(
+        f"/api/sources/{source.id}/clips/nope/trim", json={"start": 1, "end": 9}
+    )
+    assert response.status_code == 404
+
+
+def test_framing_endpoint_returns_a_plan_or_explains_its_absence(client, analyzed):
+    source, result = analyzed
+    clip = next(c for c in result.candidates if c.rank)
+    payload = client.get(f"/api/sources/{source.id}/clips/{clip.id}/framing").json()
+    assert isinstance(payload["cuts"], list)
+    assert payload["shots"]
+    if payload["plan"] is not None:
+        assert payload["plan"]["crop_w"] > 0
+        assert payload["plan"]["knots"]
+        assert payload["expression"]

@@ -60,6 +60,11 @@ class RenderRequest(BaseModel):
     force: bool = False
 
 
+class TrimRequest(BaseModel):
+    start: float | None = None
+    end: float | None = None
+
+
 @app.on_event("startup")
 def _startup() -> None:
     db.init()
@@ -280,6 +285,44 @@ def render_presets() -> list[dict]:
     from .render.ass import PRESETS, style_summary
 
     return [style_summary(style) for style in PRESETS.values()]
+
+
+@app.post("/api/sources/{source_id}/clips/{clip_id}/trim")
+def trim_clip(source_id: str, clip_id: str, request: TrimRequest) -> dict:
+    from .service import trim_clip as do_trim
+
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    try:
+        candidate = do_trim(source, clip_id, request.start, request.end)
+    except (KeyError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return candidate.model_dump()
+
+
+@app.get("/api/sources/{source_id}/clips/{clip_id}/framing")
+def clip_framing(source_id: str, clip_id: str) -> dict:
+    """Where the "auto" reframer would put the crop, and why.
+
+    Exposed so the plan can be inspected before spending a render - a reframe you
+    cannot see is indistinguishable from a bug the first time it is wrong.
+    """
+    from .pipeline.framing import plan_for_clip
+    from .pipeline.scenes import cuts_for, shots_between
+
+    source = db.get_source(source_id)
+    candidate = db.find_candidate(source_id, clip_id)
+    if source is None or candidate is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+    cuts = cuts_for(source.path, None, source.duration)
+    plan = plan_for_clip(source, candidate, cuts)
+    return {
+        "cuts": cuts[:200],
+        "shots": [list(span) for span in shots_between(cuts, candidate.start, candidate.end)],
+        "plan": plan.summary() if plan else None,
+        "expression": plan.expression() if plan else "",
+    }
 
 
 @app.post("/api/sources/{source_id}/clips/{clip_id}/render")

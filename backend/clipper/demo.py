@@ -26,17 +26,50 @@ _AUDIO_EXPR = (
 
 
 def generate(target_dir: Path, seconds: int = DEMO_SECONDS) -> Path:
+    """Three hard-cut segments in one file.
+
+    The cuts are the point: they let scene detection, boundary snapping and
+    shot-aware framing be exercised on a machine with no real media. All three
+    segments keep moving so the reframer has something to track.
+    """
     target_dir.mkdir(parents=True, exist_ok=True)
     out = target_dir / "demo-stream.mp4"
     if out.exists() and out.stat().st_size > 10_000:
         return out
-    audio_src = f"aevalsrc={_AUDIO_EXPR}:s=16000:d={seconds}"
-    cmd = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", f"testsrc2=size=960x540:rate=30:duration={seconds}",
-        "-f", "lavfi", "-i", audio_src,
+
+    segments = 3
+    part = max(20, seconds // segments)
+    audio_srcs = [f"aevalsrc={_AUDIO_EXPR}:s=16000:d={part}" for _ in range(segments)]
+
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    for _ in range(segments):
+        cmd += [
+            "-f", "lavfi",
+            "-i", f"testsrc2=size=960x540:rate=30:duration={part}",
+        ]
+    for src in audio_srcs:
+        cmd += ["-f", "lavfi", "-i", src]
+
+    # The cuts must move *luma*, not just hue: ffmpeg's scene score is a luma
+    # measure, so hue-rotated segments read as one continuous shot. Distinct
+    # brightness per segment is what makes the cut detectable.
+    brightness = (0.0, -0.28, 0.22)
+    graph = "".join(
+        f"[{i}:v]eq=brightness={brightness[i % len(brightness)]}[v{i}];"
+        for i in range(segments)
+    )
+    graph += "".join(f"[v{i}]" for i in range(segments))
+    graph += f"concat=n={segments}:v=1:a=0[v];"
+    graph += "".join(f"[{segments + i}:a]" for i in range(segments))
+    graph += f"concat=n={segments}:v=0:a=1[a]"
+
+    cmd += [
+        "-filter_complex", graph,
+        "-map", "[v]", "-map", "[a]",
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-        "-pix_fmt", "yuv420p",
+        # Keyframe every 2 s like a real stream, so the cheap keyframe-only
+        # scene pass has something to compare.
+        "-g", "60", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "96k",
         "-shortest", str(out),
     ]

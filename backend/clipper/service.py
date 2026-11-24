@@ -37,6 +37,7 @@ from .pipeline.media import (
     probe,
 )
 from .pipeline.scorecard import build_scorecard, grounding_ratio, reel_quality
+from .pipeline.scenes import cuts_for
 from .pipeline.select import diversify_order, select_clips
 from .pipeline.signals import (
     blend_with_llm,
@@ -46,7 +47,7 @@ from .pipeline.signals import (
     raw_signals,
     window_features,
 )
-from .pipeline.windows import build_windows
+from .pipeline.windows import Window, build_windows, snap_windows
 from .textvec import cosine, starts_with_deictic, vector
 
 Progress = Callable[[str, float, str], None]
@@ -208,6 +209,21 @@ def analyze(
 
     progress("windows", 0.56, "building sentence-aligned windows")
     windows = build_windows(utterances, SETTINGS.windows)
+    if windows:
+        # Snapping is cosmetic: it moves edges onto real edits so a clip does not
+        # open mid-transition. When detection finds nothing (audio-only sources,
+        # no keyframes) the windows pass through untouched.
+        cuts = cuts_for(source.path, SETTINGS.scenes, source.duration)
+        if cuts:
+            windows = snap_windows(
+                windows,
+                utterances,
+                cuts,
+                SETTINGS.scenes.snap_tolerance_s,
+                SETTINGS.windows.min_s,
+                SETTINGS.windows.max_s,
+            )
+            progress("windows", 0.58, f"snapped to {len(cuts)} scene cuts")
     if not windows:
         warnings.append("No speech found above the window threshold.")
         empty = AnalysisResult(
@@ -350,3 +366,80 @@ def peaks_for(source_id: str, level: int = 1024) -> tuple[np.ndarray, np.ndarray
     if not path.exists():
         raise FileNotFoundError("peaks not built yet")
     return load_peaks(path, level)
+
+
+def trim_clip(
+    source: SourceInfo,
+    candidate_id: str,
+    start: float | None = None,
+    end: float | None = None,
+    min_duration: float = 5.0,
+) -> ClipCandidate:
+    """Move a clip's in/out points and keep everything derived from them honest.
+
+    Trimming is the one edit every clipper needs and almost none explain: change
+    the timecode and the transcript, captions, gates and scorecard can all drift
+    out of sync silently. Here the words are re-cut to the new span, the text is
+    rebuilt from those words, and the gates are re-evaluated, so a trim that cuts
+    a sentence in half *fails the structural gate* instead of shipping.
+    """
+    analysis = db.get_analysis(source.id)
+    if analysis is None:
+        raise FileNotFoundError("no analysis for this source")
+    candidate = next((c for c in analysis.candidates if c.id == candidate_id), None)
+    if candidate is None:
+        raise KeyError("clip not found")
+
+    upper = source.duration or candidate.end
+    new_start = candidate.start if start is None else float(start)
+    new_end = candidate.end if end is None else float(end)
+    new_start = max(0.0, min(new_start, candidate.end - min_duration))
+    new_end = max(new_start + min_duration, min(new_end, upper))
+
+    words = [
+        w.model_copy(
+            update={
+                "start": max(w.start, new_start),
+                "end": min(w.end, new_end),
+            }
+        )
+        for w in candidate.words
+        if w.end > new_start + 1e-6 and w.start < new_end - 1e-6
+    ]
+    text = " ".join(w.text for w in words).strip()
+
+    candidate.start = round(new_start, 3)
+    candidate.end = round(new_end, 3)
+    candidate.words = words
+    candidate.text = text
+
+    window = Window(
+        start=candidate.start,
+        end=candidate.end,
+        text=text,
+        word_probs=[w.prob for w in words],
+        utterance_count=1 if words else 0,
+        first_terminal=True,
+        last_terminal=text.rstrip().endswith((".", "!", "?", "...")),
+    )
+    # Recompute the word-derived numbers from the trimmed transcript, but carry
+    # over the measured speech coverage: re-deriving it here would report 100%
+    # coverage for a stretch that was never checked, which is laundering.
+    coverage = candidate.features.speech_coverage if candidate.features else 1.0
+    features = window_features(
+        text, candidate.start, candidate.end, [w.prob for w in words], None
+    )
+    features.speech_coverage = coverage
+    candidate.features = features
+    candidate.gates = [
+        g for g in candidate.gates if g.id in {"not_shortlisted", "llm_critique"}
+    ] + evaluate_gates(window, features, words, SETTINGS.gates, upper)
+    candidate.blocked = any(not g.passed and g.severity == "block" for g in candidate.gates)
+
+    hook = candidate.llm.hook if candidate.llm else ""
+    candidate.scorecard = build_scorecard(
+        candidate, features, grounding_ratio(hook, text) if hook else 0.0
+    )
+
+    db.save_analysis(analysis)
+    return candidate
