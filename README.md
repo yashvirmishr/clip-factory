@@ -16,7 +16,7 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 
 | Area | State |
 |---|---|
-| Ingest (local file), ffprobe, streamed audio, peak pyramid | working |
+| Ingest: local file or VOD URL (yt-dlp), ffprobe, streamed audio, peak pyramid | working |
 | Transcription: whisper.cpp adapter + SRT/VTT import + deterministic stub | working |
 | Word alignment (monotonic clamp, silence snapping, outlier repair) | working |
 | Signals, percentile fusion, sentence-aligned windows | working |
@@ -35,7 +35,7 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
 | Editor handoff: OTIO, FCP7 XML, CMX 3600 EDL, SRT, zip bundle | working |
 | Gold-set pick-quality harness + CI regression gate | working |
-| `filmcraft-cli` command schema, URL ingest, installer | **not yet built** |
+| Installer, bundled binaries, LICENSE, real-VOD gold sets | **not yet built** |
 
 The reel now leaves the app: one zip carries an OTIO timeline, an FCP7 XML, an
 EDL, per-clip SRT captions and a manifest, all with timecodes from the same
@@ -132,6 +132,21 @@ Then in the UI: **Generate a demo stream → Analyze**, or paste a path to a rea
 VOD. With no model installed the app runs the deterministic stub scorer and says
 so on every clip.
 
+### VOD URLs
+
+Paste a Twitch or YouTube URL into the same field as a file path. It runs as a
+job because a two-hour VOD is not a request: you get progress, and the source
+appears when the file is on disk.
+
+The format is pinned to H.264/AAC in MP4 rather than "best", because the handoff
+target has its own decoders and no ffmpeg — an AV1 file downloads fine and then
+fails to import, which is a worse failure than a larger download. Playlists are
+refused: a channel URL with 400 VODs behind it should never start a 300 GB job by
+accident.
+
+This needs `yt-dlp` (`pip install -r requirements.txt`). Without it the app still
+runs on local files and the URL route says exactly what to install.
+
 ### Getting a model
 
 Open **Hardware & models → Models**. Every curated model is listed with its size,
@@ -149,7 +164,7 @@ with no binary used to look exactly like "transcription is broken".
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 162 tests, ~22 s, includes real encodes
+./.venv/Scripts/python.exe -m pytest        # 172 tests, ~25 s, includes real encodes
 ./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
 ```
 
@@ -434,16 +449,14 @@ imports, both opt-in.
 
 1. **Chat signal** — parser exists (`load_chat_rate`); needs a fetch step for
    Twitch VODs so the chat weight stops being redistributed away.
-2. **URL ingest** — the ingest field takes a Windows path and nothing else. A
-   `yt-dlp` step for Twitch/YouTube VODs is the largest functional hole left.
-3. **Caption editing** — pages and warnings are visible, but word timings cannot
+2. **Caption editing** — pages and warnings are visible, but word timings cannot
    be dragged or merged.
-4. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
+3. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-5. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
+4. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
    checkout with Python installed and nothing else.
-6. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
+5. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
    two-person podcast it follows activity rather than the person talking. A YuNet
    ONNX pass plus mouth-activity scoring is the documented upgrade, and
    `CropPlan` is already the interface it would plug into.

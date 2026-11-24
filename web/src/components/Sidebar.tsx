@@ -84,7 +84,7 @@ export function Sidebar({
           </div>
           <input
             className="input"
-            placeholder="C:\path\to\stream.mp4"
+            placeholder="Path or https:// VOD URL"
             value={path}
             onChange={(event) => setPath(event.target.value)}
             onKeyDown={(event) => {

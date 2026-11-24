@@ -126,6 +126,29 @@ def ingest_source(request: IngestRequest) -> dict:
     return source.model_dump()
 
 
+@app.post("/api/sources/url")
+def ingest_url(request: IngestRequest) -> dict:
+    """Download a VOD and register it. A job, because a 2 h VOD is not a request."""
+    from .pipeline import fetch
+
+    if not fetch.is_url(request.path):
+        raise HTTPException(status_code=400, detail="that is not an http(s) URL")
+    if not fetch.available():
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "URL import needs yt-dlp: "
+                "./.venv/Scripts/python.exe -m pip install yt-dlp"
+            ),
+        )
+
+    def task(progress):
+        source = service.ingest(request.path, request.name, progress=progress)
+        return source.model_dump()
+
+    return JOBS.submit("download", task).to_dict()
+
+
 @app.post("/api/demo")
 def create_demo() -> dict:
     try:

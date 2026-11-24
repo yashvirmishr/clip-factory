@@ -273,3 +273,29 @@ def test_activation_persists_to_config_json(client, tmp_path, monkeypatch):
         staged.unlink(missing_ok=True)
         staged.with_suffix(staged.suffix + ".sha256").unlink(missing_ok=True)
         (SETTINGS.data_dir / "config.json").unlink(missing_ok=True)
+
+
+def test_url_ingest_rejects_a_local_path(client):
+    response = client.post("/api/sources/url", json={"path": "C:/media/stream.mp4"})
+    assert response.status_code == 400
+    assert "http" in response.json()["detail"]
+
+
+def test_ingest_accepts_a_url_without_touching_the_network(client, monkeypatch):
+    """The service must route URLs to the fetcher, not to the file probe."""
+    from clipper.pipeline import fetch
+
+    calls = {}
+
+    def fake_fetch(url, out_dir, progress=None, max_height=1080, timeout=0):
+        calls["url"] = url
+        video = SETTINGS.media_dir() / "fetched.mp4"
+        demo.generate(SETTINGS.media_dir(), seconds=30)
+        (SETTINGS.media_dir() / "demo-stream.mp4").replace(video)
+        return fetch.Fetched(path=video, title="Fetched stream", duration=30.0, video_id="x", url=url)
+
+    monkeypatch.setattr(fetch, "fetch", fake_fetch)
+    source = service.ingest("https://example.com/vod/1")
+    assert calls["url"] == "https://example.com/vod/1"
+    assert source.name == "Fetched stream"
+    assert source.duration > 0

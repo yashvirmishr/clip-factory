@@ -14,6 +14,30 @@ import type {
 
 const BASE = '/api'
 
+const TERMINAL = new Set(['done', 'error'])
+
+/**
+ * Poll a job to completion.
+ *
+ * Used for the one flow with no other place to show progress: a VOD download
+ * that can run for minutes before the source exists to look at.
+ */
+export async function pollUntilDone(
+  jobId: string,
+  intervalMs = 700,
+  maxWaitMs = 6 * 3600 * 1000,
+): Promise<JobState> {
+  const started = Date.now()
+  for (;;) {
+    const job = await api.job(jobId)
+    if (TERMINAL.has(job.status)) return job
+    if (Date.now() - started > maxWaitMs) {
+      throw new Error('download is taking too long - check the job log')
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -48,6 +72,11 @@ export const api = {
     }),
 
   createDemo: () => request<SourceInfo>('/demo', { method: 'POST', body: JSON.stringify({}) }),
+  ingestUrl: (url: string) =>
+    request<JobState>('/sources/url', {
+      method: 'POST',
+      body: JSON.stringify({ path: url }),
+    }),
 
   analysis: (sourceId: string) => request<Analysis>(`/sources/${sourceId}/analysis`),
 

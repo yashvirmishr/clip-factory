@@ -62,7 +62,25 @@ def worker_threads() -> int:
     return max(1, cpus - SETTINGS.hardware.reserve_threads)
 
 
-def ingest(path: str | Path, name: str | None = None) -> SourceInfo:
+def ingest(
+    path: str | Path,
+    name: str | None = None,
+    progress: Progress | None = None,
+) -> SourceInfo:
+    """Register a source. A URL is fetched first, into the app media folder."""
+    from .pipeline import fetch
+
+    if fetch.is_url(path):
+        def download(fraction: float, detail: str) -> None:
+            if progress:
+                progress("download", fraction, detail)
+
+        fetched = fetch.fetch(str(path), SETTINGS.media_dir(), progress=download)
+        path = fetched.path
+        name = name or fetched.title
+        if progress:
+            progress("download", 1.0, f"{fetched.title[:60]}")
+
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"not found: {path}")

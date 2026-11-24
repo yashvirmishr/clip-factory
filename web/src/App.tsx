@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, formatTime } from './api'
+import { api, formatTime, pollUntilDone } from './api'
+import type { SourceInfo } from './types'
 import { ClipCard } from './components/ClipCard'
 import { Inspector } from './components/Inspector'
 import { SetupModal } from './components/SetupModal'
@@ -163,7 +164,24 @@ export default function App() {
 
   const handleIngest = useCallback(
     async (path: string) => {
+      const isUrl = /^https?:\/\//i.test(path.trim())
       try {
+        if (isUrl) {
+          // A download is not a request: it runs as a job so a 2 h VOD does not
+          // hold an HTTP connection open for ten minutes.
+          pushToast('info', 'Fetching that VOD…')
+          const job = await api.ingestUrl(path.trim())
+          const finished = await pollUntilDone(job.id)
+          if (finished.status === 'error') {
+            pushToast('error', `Download failed: ${finished.error || 'unknown error'}`)
+            return
+          }
+          const source = (finished as unknown as { analysis?: SourceInfo }).analysis
+          await refreshSources()
+          if (source?.id) await selectSource(source.id)
+          pushToast('ok', `Ingested ${source?.name ?? 'the video'}`)
+          return
+        }
         const source = await api.ingest(path)
         await refreshSources()
         await selectSource(source.id)
@@ -397,7 +415,7 @@ export default function App() {
                     <div className="dropzone-row">
                       <input
                         className="input"
-                        placeholder="C:\VODs\stream.mp4"
+                        placeholder="C:\VODs\stream.mp4  ·  https://twitch.tv/videos/…"
                         value={ingestPath}
                         onChange={(event) => setIngestPath(event.target.value)}
                         onKeyDown={(event) => {
