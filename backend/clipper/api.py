@@ -20,6 +20,14 @@ from . import __version__, db, demo, hardware, service
 from .config import SETTINGS
 from .jobs import JOBS
 from .learn import LEARNER
+from .pipeline.caption import (
+    CaptionPage,
+    CaptionWord,
+    caption_stats,
+    edit_pages,
+    group_words,
+    pages_for,
+)
 from .pipeline.media import MediaError
 
 app = FastAPI(title="Clip Factory", version=__version__)
@@ -67,6 +75,10 @@ class RenderRequest(BaseModel):
 class TrimRequest(BaseModel):
     start: float | None = None
     end: float | None = None
+
+
+class CaptionEditRequest(BaseModel):
+    pages: list[list[CaptionWord]]
 
 
 @app.on_event("startup")
@@ -290,19 +302,56 @@ def get_clip(source_id: str, clip_id: str) -> dict:
     return candidate.model_dump()
 
 
+def _caption_payload(clip_id: str, pages: list[CaptionPage], edited: bool) -> dict:
+    return {
+        "clip_id": clip_id,
+        "pages": [page.model_dump() for page in pages],
+        "stats": caption_stats(pages),
+        "edited": edited,
+    }
+
+
 @app.get("/api/sources/{source_id}/clips/{clip_id}/captions")
 def get_captions(source_id: str, clip_id: str) -> dict:
-    from .pipeline.caption import caption_stats, group_words
-
     candidate = db.find_candidate(source_id, clip_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="clip not found")
+    pages = pages_for(candidate, SETTINGS.captions)
+    return _caption_payload(clip_id, pages, bool(candidate.caption_pages))
+
+
+@app.put("/api/sources/{source_id}/clips/{clip_id}/captions")
+def put_captions(source_id: str, clip_id: str, request: CaptionEditRequest) -> dict:
+    """Save a manual caption pass. Words are the edit; pages are derived."""
+    analysis = db.get_analysis(source_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="no analysis for this source")
+    candidate = next((c for c in analysis.candidates if c.id == clip_id), None)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+    try:
+        pages = edit_pages(
+            request.pages, candidate.start, candidate.end, SETTINGS.captions
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    candidate.caption_pages = [page.model_dump() for page in pages]
+    db.save_analysis(analysis)
+    return _caption_payload(clip_id, pages, True)
+
+
+@app.delete("/api/sources/{source_id}/clips/{clip_id}/captions")
+def reset_captions(source_id: str, clip_id: str) -> dict:
+    analysis = db.get_analysis(source_id)
+    if analysis is None:
+        raise HTTPException(status_code=404, detail="no analysis for this source")
+    candidate = next((c for c in analysis.candidates if c.id == clip_id), None)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+    candidate.caption_pages = None
+    db.save_analysis(analysis)
     pages = group_words(candidate.words, SETTINGS.captions)
-    return {
-        "clip_id": clip_id,
-        "pages": [p.model_dump() for p in pages],
-        "stats": caption_stats(pages),
-    }
+    return _caption_payload(clip_id, pages, False)
 
 
 @app.post("/api/sources/{source_id}/clips/{clip_id}/decision")

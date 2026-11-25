@@ -1,7 +1,8 @@
 import pytest
 
 from clipper.config import CaptionConfig
-from clipper.domain import Word
+from clipper.domain import ClipCandidate, Word
+from clipper.pipeline.caption import CaptionWord, edit_pages, pages_for
 from clipper.pipeline.caption.group import caption_stats, group_words
 
 
@@ -112,3 +113,103 @@ def test_caption_stats_aggregate():
     assert stats["pages"] == len(pages)
     assert stats["mean_cps"] >= 0
     assert caption_stats([])["pages"] == 0
+
+
+# ------------------------------------------------ manual caption editing
+
+
+def clip_words() -> list[Word]:
+    return [
+        Word(text=text, start=index * 0.5, end=index * 0.5 + 0.4, prob=0.95)
+        for index, text in enumerate(["one", "two", "three"])
+    ]
+
+
+def candidate() -> ClipCandidate:
+    items = clip_words()
+    return ClipCandidate(
+        id="clip1",
+        source_id="src1",
+        start=0.0,
+        end=10.0,
+        text=" ".join(word.text for word in items),
+        words=items,
+    )
+
+
+def test_edit_pages_normalises_text_and_spacing():
+    pages = edit_pages(
+        [[CaptionWord(text="  hello ", start=1.0, end=1.4),
+          CaptionWord(text="world", start=1.5, end=1.9)]],
+        0.0,
+        10.0,
+    )
+    assert len(pages) == 1
+    assert pages[0].text == "hello world"
+    assert pages[0].lines == ["hello world"]
+    assert pages[0].start == 1.0
+    assert pages[0].end == 1.9
+
+
+def test_edit_pages_keeps_manual_page_splits():
+    pages = edit_pages(
+        [
+            [CaptionWord(text="one", start=0.0, end=0.4),
+             CaptionWord(text="two", start=0.5, end=0.9)],
+            [CaptionWord(text="three", start=1.0, end=1.4)],
+        ],
+        0.0,
+        10.0,
+    )
+    assert [page.text for page in pages] == ["one two", "three"]
+    assert [page.index for page in pages] == [0, 1]
+
+
+def test_edit_pages_clips_words_at_the_clip_edges():
+    pages = edit_pages(
+        [[CaptionWord(text="edge", start=-1.0, end=0.5),
+          CaptionWord(text="end", start=9.6, end=12.0)]],
+        0.0,
+        10.0,
+    )
+    assert pages[0].words[0].start == 0.0
+    assert pages[0].words[-1].end == 10.0
+
+
+def test_edit_pages_rejects_overlapping_pages():
+    with pytest.raises(ValueError, match="pages overlap"):
+        edit_pages(
+            [
+                [CaptionWord(text="one", start=1.0, end=3.0)],
+                [CaptionWord(text="two", start=2.0, end=4.0)],
+            ],
+            0.0,
+            10.0,
+        )
+
+
+def test_edit_pages_rejects_a_word_outside_the_clip():
+    with pytest.raises(ValueError, match="outside the clip"):
+        edit_pages([[CaptionWord(text="gone", start=0.0, end=0.5)]], 5.0, 10.0)
+
+
+def test_edit_pages_rejects_empty_pages_and_non_finite_words():
+    with pytest.raises(ValueError, match="at least one"):
+        edit_pages([], 0.0, 10.0)
+    with pytest.raises(ValueError, match="no words"):
+        edit_pages([[]], 0.0, 10.0)
+    with pytest.raises(ValueError, match="non-finite"):
+        edit_pages([[CaptionWord(text="x", start=float("nan"), end=1.0)]], 0.0, 10.0)
+
+
+def test_pages_for_prefers_a_valid_override():
+    clip = candidate()
+    edited = edit_pages([[CaptionWord(text="fixed", start=1.0, end=2.0)]], 0.0, 10.0)
+    clip.caption_pages = [page.model_dump() for page in edited]
+    assert [page.text for page in pages_for(clip)] == ["fixed"]
+
+
+def test_pages_for_falls_back_when_the_override_is_corrupt():
+    clip = candidate()
+    clip.caption_pages = [{"text": 3}]
+    assert pages_for(clip) == group_words(clip.words)

@@ -16,6 +16,7 @@ import pytest
 from clipper.domain import ClipCandidate, LLMJudgement, SourceInfo, Word
 from clipper.editors import bundle, edl, otio, srt, xmeml
 from clipper.editors.spec import spec_for
+from clipper.pipeline.caption import CaptionWord, edit_pages
 from clipper.editors.timecode import (
     frames_at,
     parse_timecode,
@@ -116,6 +117,19 @@ def test_spec_pages_are_clip_relative_and_clipped():
     assert spans
     assert spans[0][0] == pytest.approx(0.0)
     assert all(0 <= start < end <= spec.duration + 1e-6 for start, end, _ in spans)
+
+
+def test_manual_caption_edit_reaches_the_spec_and_srt():
+    candidate = make_candidate()
+    pages = edit_pages(
+        [[CaptionWord(text="fixed words", start=candidate.start, end=candidate.start + 1.0)]],
+        candidate.start,
+        candidate.end,
+    )
+    candidate.caption_pages = [page.model_dump() for page in pages]
+    spec = spec_for(make_source(), candidate, 1)
+    assert [text for _, _, text in spec.page_spans()] == ["fixed words"]
+    assert "fixed words" in srt.build(spec)
 
 
 def test_spec_file_url_is_a_real_url():

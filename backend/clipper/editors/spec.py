@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..config import SETTINGS
 from ..domain import AnalysisResult, ClipCandidate, SourceInfo
-from ..pipeline.caption import CaptionPage, group_words
+from ..pipeline.caption import CaptionPage, pages_for
 from .timecode import Rate, frames_at, rate_for
 
 
@@ -89,7 +89,7 @@ def spec_for(
     index: int = 1,
     crop: tuple[tuple[float, float], ...] = (),
 ) -> ClipSpec:
-    pages = group_words(candidate.words, SETTINGS.captions)
+    pages = pages_for(candidate, SETTINGS.captions)
     return ClipSpec(
         id=candidate.id,
         name=_clip_name(index, candidate),

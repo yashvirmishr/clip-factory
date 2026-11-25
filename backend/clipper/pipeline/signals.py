@@ -15,6 +15,7 @@ detection, and they cost one pass over arrays we already computed:
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +32,10 @@ from ..textvec import (
 from .media import AudioAnalysis
 
 LOW_CONF_THRESHOLD = 0.45
+# Chat is only a signal when there is enough of it to form a rate. Two messages
+# in a two-hour VOD are timestamps, not a crowd; min/max normalisation would turn
+# those two points into the strongest moments in the stream.
+MIN_CHAT_RATE = 0.002
 
 
 def load_chat_rate(path: str | Path | None, duration: float) -> np.ndarray | None:
@@ -44,17 +49,40 @@ def load_chat_rate(path: str | Path | None, duration: float) -> np.ndarray | Non
         payload = json.loads(p.read_text("utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
-    if not isinstance(payload, list):
+    if isinstance(payload, dict):
         payload = payload.get("comments", [])
-    buckets = np.zeros(int(max(1.0, duration)) + 1, dtype=np.float32)
+    if not isinstance(payload, list):
+        return None
+    try:
+        seconds = float(duration)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds) or seconds <= 0:
+        return None
+    buckets = np.zeros(int(max(1.0, seconds)) + 1, dtype=np.float32)
+    kept = 0
     for item in payload:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("content_offset_seconds", item.get("offset"))
+        if value is None:
+            continue
         try:
-            t = float(item.get("content_offset_seconds", item.get("offset", 0.0)))
+            t = float(value)
         except (TypeError, ValueError):
+            continue
+        if not math.isfinite(t) or t < 0:
             continue
         idx = int(t)
         if 0 <= idx < buckets.size:
             buckets[idx] += 1.0
+            kept += 1
+    # A parseable file with no usable timestamps is not a signal. Returning a
+    # zero array would mark chat as available, give every window the same 0.5
+    # rank, and quietly add that constant to the fused score. The same applies
+    # to a file that is technically valid but far too sparse to be a rate.
+    if kept < seconds * MIN_CHAT_RATE:
+        return None
     return buckets
 
 

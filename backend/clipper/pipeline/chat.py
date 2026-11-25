@@ -23,7 +23,10 @@ emits, so a hand-made dump keeps working.
 from __future__ import annotations
 
 import json
+import math
+import os
 import re
+import tempfile
 from pathlib import Path
 
 GQL_ENDPOINT = "https://gql.twitch.tv/gql"
@@ -75,8 +78,12 @@ def _post(client, variables: dict) -> dict:
         body = response.json()
     except ValueError as exc:
         raise ChatError(f"twitch returned non-JSON: {response.text[:160]}") from exc
-    if body.get("errors"):
-        message = body["errors"][0].get("message", "unknown GraphQL error")
+    if not isinstance(body, dict):
+        raise ChatError(f"twitch returned an unexpected payload: {json.dumps(body)[:200]}")
+    errors = body.get("errors")
+    if isinstance(errors, list) and errors:
+        first = errors[0] if isinstance(errors[0], dict) else {}
+        message = first.get("message", "unknown GraphQL error")
         raise ChatError(f"twitch GraphQL error: {message}")
     return body
 
@@ -115,19 +122,38 @@ def fetch_offsets(
     http = client or httpx.Client(timeout=30.0, follow_redirects=True)
     try:
         while True:
-            body = _post(http, {"id": video_id, "offset": offset})
+            try:
+                body = _post(http, {"id": video_id, "offset": offset})
+            except httpx.HTTPError as exc:
+                raise ChatError(f"could not reach twitch: {exc}") from exc
             video = _video(body)
             if not length:
-                length = float(video.get("lengthSeconds") or 0.0)
+                try:
+                    length = float(video.get("lengthSeconds") or 0.0)
+                except (TypeError, ValueError):
+                    length = 0.0
+                if not math.isfinite(length) or length < 0:
+                    length = 0.0
 
-            comments = video.get("comments") or {}
-            edges = comments.get("edges") or []
+            comments = video.get("comments")
+            if not isinstance(comments, dict):
+                comments = {}
+            edges = comments.get("edges")
+            if not isinstance(edges, list):
+                edges = []
             page: list[float] = []
             for edge in edges:
-                node = (edge or {}).get("node") or {}
+                if not isinstance(edge, dict):
+                    continue
+                node = edge.get("node")
+                if not isinstance(node, dict):
+                    continue
                 value = node.get("contentOffsetSeconds")
-                if isinstance(value, (int, float)):
-                    page.append(float(value))
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    continue
+                value = float(value)
+                if math.isfinite(value) and value >= 0:
+                    page.append(value)
 
             # A page starts before the requested offset, so most of it is a
             # replay of what the previous page already gave us. Keep the tail -
@@ -156,13 +182,37 @@ def fetch_offsets(
 
 
 def write_dump(path: Path, offsets: list[float], source: str = "") -> Path:
+    """Write the artifact atomically so an interrupted fetch cannot be read as empty."""
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = [
         {"content_offset_seconds": round(offset, 3), "source": source}
         for offset in offsets
     ]
-    path.write_text(json.dumps(payload), "utf-8")
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
     return path
+
+
+def _seconds(value) -> float | None:
+    """A finite, non-negative offset, or None for anything else."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
 
 
 def read_dump(path: Path) -> list[float]:
@@ -170,28 +220,40 @@ def read_dump(path: Path) -> list[float]:
         payload = json.loads(Path(path).read_text("utf-8"))
     except (OSError, ValueError):
         return []
+    if isinstance(payload, dict):
+        payload = payload.get("comments", [])
     if not isinstance(payload, list):
         return []
     out: list[float] = []
     for item in payload:
-        if isinstance(item, dict):
-            value = item.get("content_offset_seconds")
-            if isinstance(value, (int, float)):
-                out.append(float(value))
+        if not isinstance(item, dict):
+            continue
+        seconds = _seconds(item.get("content_offset_seconds"))
+        if seconds is not None:
+            out.append(seconds)
+    out.sort()
     return out
 
 
 def coverage(offsets: list[float], duration: float) -> dict:
     """How much of the VOD the chat actually covers, for the UI to be honest."""
-    if not offsets or duration <= 0:
-        return {"messages": len(offsets), "first": 0.0, "last": 0.0, "coverage": 0.0}
-    first, last = offsets[0], offsets[-1]
+    values = [_seconds(offset) for offset in offsets]
+    values = sorted(value for value in values if value is not None)
+    if not values:
+        return {"messages": 0, "first": 0.0, "last": 0.0, "coverage": 0.0}
+    first, last = values[0], values[-1]
+    try:
+        total = float(duration)
+    except (TypeError, ValueError):
+        total = 0.0
+    if not math.isfinite(total) or total <= 0:
+        total = 0.0
     span = max(0.0, last - first)
     return {
-        "messages": len(offsets),
+        "messages": len(values),
         "first": round(first, 1),
         "last": round(last, 1),
-        "coverage": round(min(1.0, span / duration), 3),
+        "coverage": round(min(1.0, span / total), 3) if total else 0.0,
     }
 
 

@@ -7,11 +7,13 @@ all pinned without depending on a VOD that still exists.
 
 import json
 
+import httpx
 import pytest
 
 from clipper import service
 from clipper.domain import SourceInfo
 from clipper.pipeline import chat
+from clipper.pipeline.signals import load_chat_rate
 
 
 class FakeResponse:
@@ -235,3 +237,89 @@ def test_analyze_picks_up_a_dropped_in_chat_artifact():
     assert status["available"] is True
     assert status["messages"] == 3
     assert status["coverage"] == pytest.approx(0.983, abs=0.001)
+
+
+def test_a_junk_chat_dump_reads_cleanly_and_in_order(tmp_path):
+    path = tmp_path / "chat.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"content_offset_seconds": 20.0},
+                {"content_offset_seconds": float("nan")},
+                "junk",
+                {"content_offset_seconds": -1},
+                {"content_offset_seconds": 10.0},
+            ]
+        ),
+        "utf-8",
+    )
+    assert chat.read_dump(path) == [10.0, 20.0]
+
+    # The analysis loader reads the raw file, not read_dump, so it needs the same
+    # defences: a malformed hand-made dump must not take the whole run down.
+    rate = load_chat_rate(path, 60.0)
+    assert rate is not None
+    assert float(rate.sum()) == 2.0
+    assert rate[10] == 1.0 and rate[20] == 1.0
+
+
+def test_chat_rate_skips_entries_without_a_timestamp(tmp_path):
+    path = tmp_path / "chat.json"
+    path.write_text(
+        json.dumps(
+            {
+                "comments": [
+                    {"content_offset_seconds": 2.5},
+                    {},
+                    {"offset": 5.0},
+                    {"content_offset_seconds": "soon"},
+                    {"content_offset_seconds": float("inf")},
+                ]
+            }
+        ),
+        "utf-8",
+    )
+    rate = load_chat_rate(path, 10.0)
+    assert rate is not None
+    assert float(rate.sum()) == 2.0
+    assert rate[0] == 0.0
+    assert rate[2] == 1.0 and rate[5] == 1.0
+
+
+def test_a_chat_file_with_no_usable_timestamps_is_not_a_signal(tmp_path):
+    path = tmp_path / "chat.json"
+    chat.write_dump(path, [])
+    assert load_chat_rate(path, 60.0) is None
+
+    # Timestamps outside the source are unusable too: they must not leave an
+    # all-zero array that the analyser mistakes for available chat.
+    chat.write_dump(path, [900.0])
+    assert load_chat_rate(path, 60.0) is None
+
+
+def test_two_messages_in_a_two_hour_vod_are_not_a_chat_rate(tmp_path):
+    path = tmp_path / "chat.json"
+    chat.write_dump(path, [60.0, 4077.0])
+    assert load_chat_rate(path, 7212.0) is None
+
+    # Two messages are a real rate over a short clip.
+    short = tmp_path / "short-chat.json"
+    chat.write_dump(short, [10.0, 20.0])
+    assert load_chat_rate(short, 60.0) is not None
+
+
+def test_coverage_sorts_offsets_and_ignores_junk():
+    info = chat.coverage([20.0, "junk", 10.0, float("nan")], 100.0)
+    assert info["messages"] == 2
+    assert info["first"] == 10.0
+    assert info["last"] == 20.0
+    assert info["coverage"] == pytest.approx(0.1)
+
+
+def test_a_network_failure_becomes_a_chat_error():
+    class Offline(FakeClient):
+        def post(self, url, json=None, headers=None):
+            raise httpx.ConnectError("offline")
+
+    with pytest.raises(chat.ChatError, match="could not reach twitch"):
+        chat.fetch_offsets("1", client=Offline([[]]))

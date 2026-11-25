@@ -90,6 +90,9 @@ class ClipCandidate(BaseModel):
     scorecard: list[ScoreItem] = Field(default_factory=list)
     rank: int | None = None
     blocked: bool = False
+    # A manual caption pass, source-absolute. None means "derive from words";
+    # an empty list is not a valid edit and is treated as absent.
+    caption_pages: list[dict] | None = None
 
     @property
     def duration(self) -> float:

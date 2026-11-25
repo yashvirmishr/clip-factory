@@ -315,7 +315,7 @@ def analyze(
     else:
         if chat_path is not None:
             # A file was there but nothing usable came out of it.
-            warnings.append("Chat file had no usable timestamps - chat weight redistributed.")
+            warnings.append("Chat replay was empty or too sparse - chat weight redistributed.")
         else:
             warnings.append("No chat replay - chat weight redistributed to other signals.")
 
@@ -470,6 +470,10 @@ def trim_clip(
     new_end = candidate.end if end is None else float(end)
     new_start = max(0.0, min(new_start, candidate.end - min_duration))
     new_end = max(new_start + min_duration, min(new_end, upper))
+    moved = (
+        abs(new_start - candidate.start) > 1e-6
+        or abs(new_end - candidate.end) > 1e-6
+    )
 
     words = [
         w.model_copy(
@@ -515,6 +519,10 @@ def trim_clip(
     candidate.scorecard = build_scorecard(
         candidate, features, grounding_ratio(hook, text) if hook else 0.0
     )
+    if moved:
+        # Page timings were written against the old in/out points. Re-deriving
+        # from the re-cut words is honest; carrying the edit over would drift.
+        candidate.caption_pages = None
 
     db.save_analysis(analysis)
     return candidate

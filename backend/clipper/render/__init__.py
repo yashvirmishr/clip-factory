@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 from ..config import SETTINGS
-from ..domain import ClipCandidate, SourceInfo
-from ..pipeline.caption import group_words
+from ..domain import ClipCandidate, SourceInfo, stable_id
+from ..pipeline.caption import pages_for
 from .ass import get_preset, style_summary, write_ass
 from .ffmpeg import FRAMINGS, RenderSpec, build_args, choose_encoder, ffprobe_duration
 
@@ -47,7 +47,14 @@ def render_clip(
         if plan is None:
             framing = "crop"
 
-    out = renders_dir() / f"{candidate.id}-{style.key}-{framing}.mp4"
+    pages = pages_for(candidate, SETTINGS.captions)
+    if not pages:
+        raise RenderError("this clip has no caption pages to burn")
+
+    # Captions are part of the picture, so they are part of the cache key. A
+    # manual edit must never come back as a cached render of the old words.
+    digest = stable_id(*(page.model_dump_json() for page in pages))
+    out = renders_dir() / f"{candidate.id}-{style.key}-{framing}-{digest}.mp4"
 
     if out.exists() and out.stat().st_size > 10_000 and not force:
         return {
@@ -60,9 +67,6 @@ def render_clip(
             "crop": plan.summary() if plan else None,
         }
 
-    pages = group_words(candidate.words, SETTINGS.captions)
-    if not pages:
-        raise RenderError("this clip has no caption pages to burn")
     if progress:
         progress("captions", 0.18, f"{len(pages)} pages")
 

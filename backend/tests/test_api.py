@@ -25,6 +25,16 @@ def analyzed(client):
     return source, result
 
 
+def word_groups(captions: dict) -> list[list[dict]]:
+    return [
+        [
+            {"text": word["text"], "start": word["start"], "end": word["end"]}
+            for word in page["words"]
+        ]
+        for page in captions["pages"]
+    ]
+
+
 def test_health(client):
     payload = client.get("/api/health").json()
     assert payload["ok"] is True
@@ -60,6 +70,45 @@ def test_analysis_is_served_and_has_ranked_clips(client, analyzed):
     assert ranked
     assert all(c["scorecard"] for c in ranked)
     assert all(g["id"] for c in ranked for g in c["gates"])
+
+
+def test_caption_edit_round_trips_and_can_be_reset(client, analyzed):
+    source, _ = analyzed
+    analysis = client.get(f"/api/sources/{source.id}/analysis").json()
+    clip = next(c for c in analysis["candidates"] if c["rank"])
+    url = f"/api/sources/{source.id}/clips/{clip['id']}/captions"
+
+    base = client.get(url).json()
+    assert base["edited"] is False
+    assert base["pages"]
+    pages = word_groups(base)
+    pages[0][0]["text"] = "edited"
+
+    saved = client.put(url, json={"pages": pages})
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["edited"] is True
+    assert body["pages"][0]["text"].startswith("edited")
+
+    stored = client.get(url).json()
+    assert stored["edited"] is True
+    assert stored["pages"][0]["text"].startswith("edited")
+
+    reset = client.delete(url)
+    assert reset.status_code == 200
+    assert reset.json()["edited"] is False
+    assert reset.json()["pages"][0]["text"] == base["pages"][0]["text"]
+
+
+def test_caption_edit_rejects_an_empty_page_list(client, analyzed):
+    source, _ = analyzed
+    analysis = client.get(f"/api/sources/{source.id}/analysis").json()
+    clip = next(c for c in analysis["candidates"] if c["rank"])
+    response = client.put(
+        f"/api/sources/{source.id}/clips/{clip['id']}/captions",
+        json={"pages": []},
+    )
+    assert response.status_code == 400
 
 
 def test_peaks_endpoint_returns_downsampled_waveform(client, analyzed):
@@ -145,6 +194,9 @@ def test_trim_moves_the_bounds_and_recuts_the_transcript(client, analyzed):
     clip = next(c for c in result.candidates if c.rank and c.duration > 10)
     new_start = clip.start + 1.5
     new_end = clip.end - 1.0
+    caption_url = f"/api/sources/{source.id}/clips/{clip.id}/captions"
+    base = client.get(caption_url).json()
+    assert client.put(caption_url, json={"pages": word_groups(base)}).status_code == 200
 
     payload = client.post(
         f"/api/sources/{source.id}/clips/{clip.id}/trim",
@@ -160,6 +212,8 @@ def test_trim_moves_the_bounds_and_recuts_the_transcript(client, analyzed):
     refreshed = client.get(f"/api/sources/{source.id}/analysis").json()
     stored = next(c for c in refreshed["candidates"] if c["id"] == clip.id)
     assert stored["start"] == pytest.approx(new_start, abs=1e-3)
+    # Page timings were written against the old bounds; trimming drops them.
+    assert client.get(caption_url).json()["edited"] is False
 
 
 def test_trim_refuses_to_make_an_unusable_clip(client, analyzed):
