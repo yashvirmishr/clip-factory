@@ -10,6 +10,10 @@ the LLM only re-ranks a short list, and the whole analysis pipeline runs in
 
 ![The reel](docs/ui-reel.png)
 
+The workspace ships with six themes and a Studio for making your own. Every panel,
+hairline and monitor tone comes from nine seeds; see [theme authoring](docs/theme-authoring.md)
+for the file format and a starter theme.
+
 ---
 
 ## What actually works right now
@@ -174,14 +178,14 @@ download is caught on the next run instead of at inference time.
 ![Model manager](docs/ui-models.png)
 
 Transcription also needs a `whisper.cpp` binary, which is not shipped: drop
-`whisper-cli.exe` into `<data>in` or put it on `PATH`. The dialog tells you when
+`whisper-cli.exe` into `<data>\bin` or put it on `PATH`. The dialog tells you when
 that binary is missing rather than silently falling back to the stub — a model
 with no binary used to look exactly like "transcription is broken".
 
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 194 tests, ~25 s, includes real encodes
+./.venv/Scripts/python.exe -m pytest        # 211 tests, ~25 s, includes real encodes
 ./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
 ```
 
@@ -465,8 +469,9 @@ imports and the Twitch chat fetch you ask for, all opt-in.
 
 ## Where this goes next
 
-1. **Caption editing** — pages and warnings are visible, but word timings cannot
-   be dragged or merged.
+1. **Caption editing** — the backend accepts a full manual word/page pass
+   (PUT .../captions), but the inspector still only reads pages; word timings
+   cannot be dragged or merged in the UI yet.
 2. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.

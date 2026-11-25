@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, formatBytes } from '../api'
 import type { ModelsPayload, ModelStatus } from '../types'
+import { Icon } from '../workspace/Icon'
+import { Spinner } from '../workspace/ui'
 
 const KIND_LABEL: Record<string, string> = {
   asr: 'Transcription',
@@ -96,7 +98,11 @@ export function ModelList() {
   }
 
   if (!payload) {
-    return <p className="panel-note">{error ?? 'Reading model manifest…'}</p>
+    return (
+      <div className="panel-loading">
+        <Spinner label={error ?? 'Reading model manifest'} />
+      </div>
+    )
   }
 
   const recommended = new Set(
@@ -111,82 +117,86 @@ export function ModelList() {
   )
 
   return (
-    <>
-      <div className="panel-note" style={{ marginBottom: 6 }}>
-        {payload.available_gb.toFixed(1)} GB free right now ({payload.reserve_gb} GB reserved for the
-        OS). Models larger than 75% of that are flagged, not hidden.
+    <div className="model-list">
+      <div className="model-summary">
+        <span className="num">{payload.available_gb.toFixed(1)} GB</span> free right now
+        <span aria-hidden="true">·</span>
+        <span className="num">{formatBytes(payload.reserve_gb * 1e9)}</span> reserved
       </div>
+
       {payload.whisper_cli ? (
-        <div className="panel-note" style={{ marginBottom: 8 }}>
-          whisper.cpp: <span className="mono">{payload.whisper_cli}</span>
-        </div>
+        <p className="model-path">
+          whisper.cpp <code>{payload.whisper_cli}</code>
+        </p>
       ) : (
-        <div className="panel-note" style={{ marginBottom: 8, color: 'var(--warn)' }}>
-          whisper.cpp binary not found. Put <span className="mono">whisper-cli.exe</span> in{' '}
-          <span className="mono">{payload.models_dir}\..\bin</span> or on PATH — until then
-          transcription uses the deterministic stub.
-        </div>
+        <p className="warn-line">
+          <Icon name="alert" size={13} />
+          whisper.cpp binary not found. Put <code>whisper-cli.exe</code> in <code>{payload.models_dir}\..\bin</code> or
+          on PATH — until then transcription uses the deterministic stub.
+        </p>
       )}
+
       {models.map((model) => {
         const row = rows[model.id]
         return (
-          <div className="model-row" key={model.id}>
-            <div style={{ minWidth: 0 }}>
-              <div>
-                {model.label}
-                {recommended.has(model.id) ? (
-                  <span className="pill" style={{ marginLeft: 6, fontSize: 9 }}>
-                    recommended
-                  </span>
-                ) : null}
-                {model.active ? (
-                  <span className="pill" style={{ marginLeft: 6, fontSize: 9, color: 'var(--signal)' }}>
-                    active
-                  </span>
-                ) : null}
+          <article className="model-row" key={model.id}>
+            <div className="model-main">
+              <div className="model-title">
+                <b>{model.label}</b>
+                {recommended.has(model.id) ? <span className="pill ok">recommended</span> : null}
+                {model.active ? <span className="pill accent">in use</span> : null}
+                {!model.fits ? <span className="pill warn">needs more memory</span> : null}
               </div>
-              <div className="speed">
-                {KIND_LABEL[model.kind] ?? model.kind} · {model.speed}
-                {!model.fits ? ' · larger than the memory free right now' : ''}
+              <div className="model-meta">
+                {KIND_LABEL[model.kind] ?? model.kind}
+                <span aria-hidden="true">·</span>
+                <span>{model.speed}</span>
+                <span aria-hidden="true">·</span>
+                <span className="num">{model.size_gb} GB</span>
               </div>
               {row && !row.error ? (
-                <div style={{ marginTop: 4 }}>
-                  <div className="meter">
+                <div className="model-progress">
+                  <div className="meter" aria-hidden="true">
                     <i style={{ width: `${Math.round(row.pct * 100)}%` }} />
                   </div>
-                  <span className="mono" style={{ fontSize: 9.5, color: 'var(--ink-3)' }}>
+                  <span className="num">
                     {row.detail || 'downloading'} · {Math.round(row.pct * 100)}%
                   </span>
                 </div>
               ) : null}
               {row?.error ? <span className="warn-line">{row.error}</span> : null}
             </div>
-            <div className="size">{model.size_gb} GB</div>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div className="model-action">
               {model.installed ? (
                 <button
                   type="button"
-                  className="btn sm"
+                  className="btn sm ghost"
                   disabled={model.active}
                   onClick={() => void activate(model)}
                 >
-                  {model.active ? 'In use' : 'Use'}
+                  {model.active ? 'In use' : 'Use model'}
                 </button>
               ) : (
                 <button
                   type="button"
-                  className="btn sm"
+                  className="btn sm ghost"
                   disabled={Boolean(row && !row.error)}
                   onClick={() => void download(model)}
                 >
+                  <Icon name="download" size={13} />
                   {row && !row.error ? 'Downloading' : 'Download'}
                 </button>
               )}
             </div>
-          </div>
+          </article>
         )
       })}
-      {error ? <p className="warn-line">{error}</p> : null}
-    </>
+      {error ? (
+        <p className="warn-line">
+          <Icon name="alert" size={13} />
+          {error}
+        </p>
+      ) : null}
+    </div>
   )
 }

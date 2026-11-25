@@ -119,10 +119,10 @@ export const api = {
       '/render/presets',
     ),
 
-  renderClip: (sourceId: string, clipId: string, preset: string, framing: string) =>
+  renderClip: (sourceId: string, clipId: string, preset: string, framing: string, force = false) =>
     request<JobState>(`/sources/${sourceId}/clips/${clipId}/render`, {
       method: 'POST',
-      body: JSON.stringify({ preset, framing }),
+      body: JSON.stringify({ preset, framing, force }),
     }),
 
   decide: (sourceId: string, clipId: string, action: Verdict, reason = '') =>
@@ -177,6 +177,18 @@ export function formatTime(seconds: number): string {
   const s = total % 60
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+export function formatTimecode(seconds: number, fps = 30): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00:00:00'
+  const totalFrames = Math.round(seconds * fps)
+  const frames = totalFrames % fps
+  const whole = Math.floor(totalFrames / fps)
+  const h = Math.floor(whole / 3600)
+  const m = Math.floor((whole % 3600) / 60)
+  const s = whole % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${pad(h)}:${pad(m)}:${pad(s)}:${pad(frames)}`
 }
 
 export function formatBytes(bytes: number): string {

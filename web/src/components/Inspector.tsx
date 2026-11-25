@@ -1,95 +1,82 @@
 import { useEffect, useRef, useState } from 'react'
-import { api, formatTime } from '../api'
+import { api, formatTimecode } from '../api'
 import type { Captions, Clip, Verdict } from '../types'
-import { GateWarnings, Panel, ScoreBars, TruthList } from './bits'
+import { Icon } from '../workspace/Icon'
+import { Tabs } from '../workspace/Tabs'
+import { Spinner } from '../workspace/ui'
+import { GateWarnings, ScoreBars, TruthList } from './bits'
 import { ExportPanel } from './ExportPanel'
-import { RenderPanel } from './RenderPanel'
+import { RenderPanel, type RenderRequest } from './RenderPanel'
 import { TrimPanel } from './TrimPanel'
 
-interface Props {
+export type InspectorTab = 'properties' | 'captions' | 'output'
+
+interface InspectorProps {
   sourceId: string
   clip: Clip | null
-  mediaSrc: string
-  verdict: Verdict | null
+  captions: Captions | null
+  captionsLoading: boolean
+  verdict: Verdict | undefined
+  playhead: number
+  fps: number
+  tab: InspectorTab
+  clipCount: number
+  hasSource: boolean
+  renderRequest: RenderRequest | null
+  onTab: (tab: InspectorTab) => void
   onVerdict: (verdict: Verdict) => void
   onSeek: (seconds: number) => void
-  onTime: (seconds: number) => void
-  seekRequest: { seconds: number; nonce: number } | null
   onHookSaved: (clipId: string, hook: string) => void
   onClipUpdated: (clip: Clip) => void
-  clipCount: number
-}
-
-const SEVERITY_COPY: Record<string, string> = {
-  heuristic: 'No model installed — hooks and scores come from the deterministic stub scorer.',
-  'llama-server': 'Scored by your local llama.cpp server.',
+  onNotify: (kind: 'ok' | 'error' | 'info', message: string) => void
+  onFloat?: () => void
 }
 
 export function Inspector({
   sourceId,
   clip,
-  mediaSrc,
+  captions,
+  captionsLoading,
   verdict,
+  playhead,
+  fps,
+  tab,
+  clipCount,
+  hasSource,
+  renderRequest,
+  onTab,
   onVerdict,
   onSeek,
-  onTime,
-  seekRequest,
   onHookSaved,
   onClipUpdated,
-  clipCount,
-}: Props) {
-  const videoRef = useRef<HTMLVideoElement | null>(null)
+  onNotify,
+  onFloat,
+}: InspectorProps) {
   const [hook, setHook] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [captions, setCaptions] = useState<Captions | null>(null)
-  const [now, setNow] = useState(0)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const saveRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
     setHook(clip?.llm?.hook ?? '')
+    setSaveState('idle')
   }, [clip?.id, clip?.llm?.hook])
-
-  // Seek the player to the clip in point whenever the selection changes.
-  useEffect(() => {
-    const node = videoRef.current
-    if (!node || !clip) return
-    node.currentTime = clip.start
-    setNow(clip.start)
-  }, [clip?.id])
-
-  useEffect(() => {
-    const node = videoRef.current
-    if (!node || !seekRequest) return
-    node.currentTime = seekRequest.seconds
-    setNow(seekRequest.seconds)
-  }, [seekRequest?.nonce])
-
-  useEffect(() => {
-    let cancelled = false
-    setCaptions(null)
-    if (!clip) return
-    api
-      .captions(sourceId, clip.id)
-      .then((payload) => {
-        if (!cancelled) setCaptions(payload)
-      })
-      .catch(() => {
-        if (!cancelled) setCaptions(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [sourceId, clip?.id])
 
   if (!clip) {
     return (
-      <aside className="inspector">
-        <header className="inspector-head">
-          <span className="label">Inspector</span>
+      <aside className="inspector" aria-label="Clip inspector">
+        <header className="panel-chrome">
+          <span className="panel-eyebrow">Inspector</span>
+          <span className="panel-count">No selection</span>
         </header>
-        <div className="inspector-body">
-          <p className="panel-note">
-            Select a clip from the reel. Every clip carries its own scorecard, gate results and
-            caption pages.
+        <div className="work-empty inspector-empty">
+          <span className="work-empty-mark" aria-hidden="true">
+            <Icon name="sliders" size={22} />
+          </span>
+          <h2>{hasSource ? 'No clip selected.' : 'Nothing to inspect.'}</h2>
+          <p>
+            {hasSource
+              ? 'Pick a candidate in the reel or a block on the timeline. Its scorecard, hook, captions and output settings live here.'
+              : 'Import a source, run the analysis, then select a clip to open its properties.'}
           </p>
         </div>
       </aside>
@@ -98,189 +85,339 @@ export function Inspector({
 
   const provider = clip.llm?.provider ?? 'none'
   const score = Math.round((clip.final || 0) * 100)
+  const words = clip.features?.word_count ?? clip.text.split(/\s+/).filter(Boolean).length
+  const dirty = hook.trim() !== (clip.llm?.hook ?? '')
+  const canEditHook = Boolean(clip.llm)
 
   const saveHook = async () => {
+    if (!clip.llm) return
     const trimmed = hook.trim()
-    if (!clip.llm || trimmed === clip.llm.hook) return
-    setSaving(true)
+    if (!trimmed || trimmed === clip.llm.hook) return
+    setSaveState('saving')
     try {
       await api.setHook(sourceId, clip.id, trimmed)
       onHookSaved(clip.id, trimmed)
-    } finally {
-      setSaving(false)
+      setSaveState('saved')
+    } catch (failure) {
+      setSaveState('error')
+      onNotify('error', (failure as Error).message)
     }
   }
+  saveRef.current = saveHook
 
   return (
-    <aside className="inspector">
+    <aside className="inspector" aria-label="Clip inspector">
       <header className="inspector-head">
-        <span className="label">Clip {clip.rank ? String(clip.rank).padStart(2, '0') : '—'}</span>
-        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-3)' }}>
-          {formatTime(clip.start)}–{formatTime(clip.end)}
-        </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
+        <div className="inspector-id">
+          <span className="clip-badge">CLIP {clip.rank ? String(clip.rank).padStart(2, '0') : '—'}</span>
+          <span className="num inspector-time">
+            {formatTimecode(clip.start, fps)} → {formatTimecode(clip.end, fps)}
+          </span>
+        </div>
+        <div className="inspector-actions">
+          {onFloat ? (
+            <button
+              type="button"
+              className="icon-btn icon-btn-sm inspector-float"
+              aria-label="Float inspector"
+              title="Float inspector"
+              onClick={onFloat}
+            >
+              <Icon name="external" size={14} />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="btn sm"
-            data-on={verdict === 'approve'}
-            style={
-              verdict === 'approve'
-                ? { background: 'var(--tungsten)', borderColor: 'var(--tungsten)', color: '#100804' }
-                : undefined
-            }
+            className="btn sm verdict-approve"
+            data-on={verdict === 'approve' ? 'true' : undefined}
             onClick={() => onVerdict(verdict === 'approve' ? 'undo' : 'approve')}
+            title="Approve clip (A)"
           >
-            Approve
+            <Icon name="check" size={13} />
+            {verdict === 'approve' ? 'Approved' : 'Approve'}
           </button>
           <button
             type="button"
-            className="btn sm"
-            style={
-              verdict === 'reject'
-                ? { borderColor: 'var(--alarm)', color: 'var(--alarm)' }
-                : undefined
-            }
+            className="btn sm verdict-reject"
+            data-on={verdict === 'reject' ? 'true' : undefined}
             onClick={() => onVerdict(verdict === 'reject' ? 'undo' : 'reject')}
+            title="Reject clip (X)"
           >
-            Reject
+            <Icon name="x" size={13} />
+            {verdict === 'reject' ? 'Rejected' : 'Reject'}
           </button>
         </div>
       </header>
 
-      <div className="inspector-body reveal">
-        <video
-          ref={videoRef}
-          className="player"
-          src={mediaSrc}
-          controls
-          preload="metadata"
-          onTimeUpdate={(event) => {
-            const time = event.currentTarget.currentTime
-            setNow(time)
-            onTime(time)
-            if (clip && time > clip.end + 0.25) event.currentTarget.pause()
-          }}
-          onSeeked={(event) => onTime(event.currentTarget.currentTime)}
-        />
+      <Tabs
+        idPrefix="inspector"
+        variant="panel"
+        ariaLabel="Inspector sections"
+        value={tab}
+        onChange={(id) => onTab(id as InspectorTab)}
+        items={[
+          { id: 'properties', label: 'Properties', icon: 'sliders' },
+          { id: 'captions', label: 'Captions', icon: 'captions', badge: captions?.stats.pages },
+          { id: 'output', label: 'Output', icon: 'download' },
+        ]}
+      />
 
-        <div className="field">
-          <div style={{ display: 'flex', alignItems: 'baseline' }}>
-            <span className="label">Hook</span>
-            <span
-              className="mono"
-              style={{ marginLeft: 'auto', fontSize: 9.5, color: saving ? 'var(--tungsten)' : 'var(--ink-3)' }}
-            >
-              {saving ? 'saving…' : `${hook.trim().split(/\s+/).filter(Boolean).length} words`}
-            </span>
-          </div>
-          <textarea
-            className="hook-input"
-            rows={2}
-            value={hook}
-            onChange={(event) => setHook(event.target.value)}
-            onBlur={saveHook}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                event.currentTarget.blur()
-              }
-            }}
-            placeholder="the on-screen text for the first three seconds"
-          />
-        </div>
+      <div
+        className="inspector-body"
+        role="tabpanel"
+        id={`inspector-panel-${tab}`}
+        aria-labelledby={`inspector-tab-${tab}`}
+      >
+        {tab === 'properties' ? (
+          <div className="inspector-scroll stack-14">
+            <section className="score-hero">
+              <div
+                className="score-ring"
+                style={{ background: `conic-gradient(var(--accent) ${Math.max(0, Math.min(100, score))}%, var(--line-strong) 0)` }}
+                role="img"
+                aria-label={`Final score ${score} out of 100`}
+              >
+                <span className="num">{String(score).padStart(3, '0')}</span>
+              </div>
+              <div className="score-hero-copy">
+                <span className="label">Final score</span>
+                <p>{clip.llm?.reason || 'No scoring reason recorded for this candidate.'}</p>
+                <div className="chip-row">
+                  <span className="pill" title="Fused signal score">
+                    fused <span className="num">{(clip.fused * 100).toFixed(0)}</span>
+                  </span>
+                  <span className="pill" title="Model score">
+                    model <span className="num">{clip.llm?.score ?? '—'}</span>
+                  </span>
+                  <span className="pill" data-tone={provider === 'llama-server' ? 'ok' : 'warn'}>
+                    {provider}
+                  </span>
+                </div>
+              </div>
+            </section>
 
-        <Panel
-          title="Score"
-          aside={
-            <span className="mono" style={{ fontSize: 15 }}>
-              {String(score).padStart(3, '0')}
-            </span>
-          }
-        >
-          <ScoreBars signals={clip.signals} />
-          <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap' }}>
-            <span className="pill">fused {(clip.fused * 100).toFixed(0)}</span>
-            <span className="pill">llm {clip.llm?.score ?? '—'}</span>
-            <span
-              className={`pill${provider === 'llama-server' ? ' ok' : ''}`}
-              title={SEVERITY_COPY[provider] ?? `provider: ${provider}`}
-            >
-              {provider}
-            </span>
-          </div>
-        </Panel>
+            <section className="inspector-section">
+              <header className="section-head">
+                <div>
+                  <span className="label">Hook</span>
+                  <h3>The first three seconds</h3>
+                </div>
+                <span className="field-hint">
+                  {saveState === 'saving'
+                    ? 'Saving…'
+                    : saveState === 'saved'
+                      ? 'Saved'
+                      : saveState === 'error'
+                        ? 'Save failed'
+                        : `${hook.trim().split(/\s+/).filter(Boolean).length} words`}
+                </span>
+              </header>
+              <div className="section-body">
+                <textarea
+                  className="hook-input"
+                  rows={3}
+                  value={hook}
+                  disabled={!canEditHook}
+                  onChange={(event) => {
+                    setHook(event.target.value)
+                    setSaveState('idle')
+                  }}
+                  onBlur={() => void saveRef.current()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      event.currentTarget.blur()
+                    }
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      setHook(clip.llm?.hook ?? '')
+                      setSaveState('idle')
+                      event.currentTarget.blur()
+                    }
+                  }}
+                  placeholder="The on-screen text for the first three seconds"
+                />
+                <div className="hook-actions">
+                  <span className="field-hint">
+                    {canEditHook ? 'Enter saves · Shift+Enter adds a line' : 'Hook editing needs a scored clip.'}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={!dirty || saveState === 'saving' || !canEditHook}
+                    onClick={() => void saveHook()}
+                  >
+                    <Icon name="save" size={13} />
+                    Save hook
+                  </button>
+                </div>
+              </div>
+            </section>
 
-        <Panel title="Quality scorecard">
-          <TruthList items={clip.scorecard} />
-        </Panel>
-
-        <Panel title="Gate warnings">
-          <GateWarnings gates={clip.gates} />
-        </Panel>
-
-        <Panel
-          title="Captions"
-          aside={
-            captions ? (
-              <span className="mono" style={{ fontSize: 9.5, color: 'var(--ink-3)' }}>
-                {captions.stats.pages} pages · {captions.stats.mean_cps} cps
-              </span>
-            ) : null
-          }
-        >
-          {captions ? (
-            <div className="pages">
-              {captions.pages.map((page) => {
-                const active = now >= page.start && now < page.end
-                return (
-                  <div className="page" key={page.index} data-active={active}>
-                    <div className="page-words">
-                      {page.words.map((word, index) => (
-                        <button
-                          type="button"
-                          className="word"
-                          key={`${page.index}-${index}`}
-                          data-speaking={now >= word.start && now < word.end}
-                          onClick={() => onSeek(word.start)}
-                          title={`${formatTime(word.start)} → ${formatTime(word.end)}`}
-                        >
-                          {word.text}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="page-foot">
-                      <span>{page.cps} cps</span>
-                      <span>{((page.end - page.start) || 0).toFixed(2)}s</span>
-                      {page.warnings.map((warning) => (
-                        <span className="warn" key={warning}>
-                          {warning}
-                        </span>
-                      ))}
-                    </div>
+            <section className="inspector-section">
+              <header className="section-head">
+                <div>
+                  <span className="label">Signals</span>
+                  <h3>Why the score moved</h3>
+                </div>
+              </header>
+              <div className="section-body stack-10">
+                <ScoreBars signals={clip.signals} />
+                <dl className="fact-grid">
+                  <div>
+                    <dt>Duration</dt>
+                    <dd className="num">{(clip.end - clip.start).toFixed(1)}s</dd>
                   </div>
-                )
-              })}
+                  <div>
+                    <dt>Words</dt>
+                    <dd className="num">{words}</dd>
+                  </div>
+                  <div>
+                    <dt>Words / sec</dt>
+                    <dd className="num">{(clip.features?.words_per_sec ?? 0).toFixed(2)}</dd>
+                  </div>
+                  <div>
+                    <dt>Speech</dt>
+                    <dd className="num">{Math.round((clip.features?.speech_coverage ?? 0) * 100)}%</dd>
+                  </div>
+                </dl>
+              </div>
+            </section>
+
+            <details className="inspector-section inspector-fold">
+              <summary className="section-head">
+                <div>
+                  <span className="label">Quality scorecard</span>
+                  <h3>What the judge looked for</h3>
+                </div>
+                <span className="fold-tail">
+                  <span className="pill numeric">
+                    {clip.scorecard.filter((item) => item.passed).length}/{clip.scorecard.length}
+                  </span>
+                  <Icon name="chevron-down" size={13} />
+                </span>
+              </summary>
+              <div className="section-body">
+                {clip.scorecard.length ? (
+                  <TruthList items={clip.scorecard} />
+                ) : (
+                  <p className="panel-note">No scorecard items were recorded.</p>
+                )}
+              </div>
+            </details>
+
+            <details className="inspector-section inspector-fold" open={clip.blocked}>
+              <summary className="section-head">
+                <div>
+                  <span className="label">Gates</span>
+                  <h3>Blocking rules</h3>
+                </div>
+                <span className="fold-tail">
+                  {clip.blocked ? <span className="pill danger">blocked</span> : <span className="pill ok">clear</span>}
+                  <Icon name="chevron-down" size={13} />
+                </span>
+              </summary>
+              <div className="section-body">
+                <GateWarnings gates={clip.gates} />
+              </div>
+            </details>
+
+            <TrimPanel
+              sourceId={sourceId}
+              clip={clip}
+              fps={fps}
+              onTrimmed={onClipUpdated}
+              onSeek={onSeek}
+            />
+
+            <details className="transcript-details">
+              <summary>
+                <span className="label">Transcript window</span>
+                <Icon name="chevron-down" size={13} />
+              </summary>
+              <p>{clip.text || 'No transcript words were retained for this window.'}</p>
+            </details>
+          </div>
+        ) : tab === 'captions' ? (
+          <div className="inspector-scroll stack-14">
+            <div className="caption-stats">
+              <div>
+                <span className="label">Pages</span>
+                <b className="num">{captions?.stats.pages ?? '—'}</b>
+              </div>
+              <div>
+                <span className="label">Mean CPS</span>
+                <b className="num">{captions?.stats.mean_cps ?? '—'}</b>
+              </div>
+              <div>
+                <span className="label">Warnings</span>
+                <b className="num">{captions?.stats.warnings ?? '—'}</b>
+              </div>
             </div>
-          ) : (
-            <p className="panel-note">No caption pages for this clip.</p>
-          )}
-        </Panel>
 
-        <TrimPanel
-          sourceId={sourceId}
-          clip={clip}
-          onTrimmed={onClipUpdated}
-          onSeek={onSeek}
-        />
-
-        <RenderPanel sourceId={sourceId} clipId={clip.id} />
-
-        <ExportPanel sourceId={sourceId} clipCount={clipCount} />
-
-        <div className="panel-note" style={{ color: 'var(--ink-3)' }}>
-          Transcript window: “{clip.text.slice(0, 260)}
-          {clip.text.length > 260 ? '…' : ''}”
-        </div>
+            {captionsLoading ? (
+              <div className="panel-loading">
+                <Spinner label="Loading caption pages" />
+              </div>
+            ) : captions ? (
+              <div className="caption-pages">
+                {captions.pages.map((page) => {
+                  const active = playhead >= page.start && playhead < page.end
+                  return (
+                    <article className="caption-page" key={page.index} data-active={active ? 'true' : undefined}>
+                      <header>
+                        <span className="num caption-page-time">
+                          {formatTimecode(page.start, fps)}
+                        </span>
+                        <span className="caption-page-meta num">{page.cps} cps</span>
+                        <span className="toolbar-spacer" />
+                        <Icon name="captions" size={12} />
+                      </header>
+                      <p className="caption-words">
+                        {page.words.map((word, index) => (
+                          <button
+                            type="button"
+                            key={`${page.index}-${index}`}
+                            className="caption-word"
+                            data-speaking={playhead >= word.start && playhead < word.end ? 'true' : undefined}
+                            onClick={() => onSeek(word.start)}
+                            title={`${formatTimecode(word.start, fps)} → ${formatTimecode(word.end, fps)}`}
+                          >
+                            {word.text}
+                          </button>
+                        ))}
+                      </p>
+                      <footer>
+                        <span className="num">{(page.end - page.start).toFixed(2)}s</span>
+                        <span className="caption-lines">{page.lines.join(' / ')}</span>
+                        {page.warnings.map((warning) => (
+                          <span className="warn" key={warning}>{warning}</span>
+                        ))}
+                      </footer>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="panel-note">No caption pages were generated for this clip.</div>
+            )}
+          </div>
+        ) : (
+          <div className="inspector-scroll stack-14">
+            <RenderPanel
+              sourceId={sourceId}
+              clipId={clip.id}
+              rank={clip.rank}
+              request={renderRequest}
+              onNotify={onNotify}
+            />
+            <ExportPanel sourceId={sourceId} clipCount={clipCount} />
+            <p className="panel-note">
+              Rendered masters are cached locally. Handoff timelines reference the original source;
+              move the source and the NLE will ask to relink.
+            </p>
+          </div>
+        )}
       </div>
     </aside>
   )

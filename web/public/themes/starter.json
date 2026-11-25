@@ -1,0 +1,29 @@
+{
+  "format": "clip-factory.theme",
+  "version": 1,
+  "theme": {
+    "id": "custom-my-room",
+    "name": "My room",
+    "author": "Your name",
+    "description": "A warm reading room with a deep teal mark.",
+    "scheme": "light",
+    "tags": ["Warm", "Editorial", "Focus"],
+    "seeds": {
+      "canvas": "#f2eadc",
+      "surface": "#fffaf0",
+      "ink": "#1d2824",
+      "accent": "#0b6b62",
+      "stage": "#0b1211",
+      "stageInk": "#e9f2ec",
+      "ok": "#2f7d4f",
+      "warn": "#9a6b12",
+      "danger": "#b14436"
+    },
+    "fonts": {
+      "ui": "'Familjen Grotesk', system-ui, sans-serif",
+      "display": "'Instrument Serif', Georgia, serif",
+      "mono": "'DM Mono', ui-monospace, monospace"
+    },
+    "radius": 3
+  }
+}

@@ -1,22 +1,39 @@
 import { useRef, useState } from 'react'
 import { formatTime } from '../api'
 import type { Clip, Verdict } from '../types'
-import { ScoreBars } from './bits'
+import { Icon } from '../workspace/Icon'
+import { IconButton } from '../workspace/ui'
 
-interface Props {
+interface ClipCardProps {
   clip: Clip
   mediaSrc: string
   selected: boolean
-  verdict: Verdict | null
+  verdict: Verdict | undefined
+  view: 'list' | 'grid'
   onSelect: () => void
+  onOpen: () => void
   onVerdict: (verdict: Verdict) => void
+  onMenu: (position: { x: number; y: number }) => void
 }
 
-function ClipThumb({ src, seekTo, hook, rank }: { src: string; seekTo: number; hook: string; rank: number | null }) {
+function ClipThumb({
+  src,
+  seekTo,
+  rank,
+  duration,
+  verdict,
+}: {
+  src: string
+  seekTo: number
+  rank: number | null
+  duration: number
+  verdict: Verdict | undefined
+}) {
   const ref = useRef<HTMLVideoElement | null>(null)
   const [failed, setFailed] = useState(false)
+
   return (
-    <div className="thumb">
+    <span className="clip-thumb" aria-hidden="true">
       {!failed ? (
         <video
           ref={ref}
@@ -24,94 +41,120 @@ function ClipThumb({ src, seekTo, hook, rank }: { src: string; seekTo: number; h
           muted
           playsInline
           preload="metadata"
+          tabIndex={-1}
           onLoadedMetadata={() => {
             const node = ref.current
             if (node) node.currentTime = seekTo
           }}
           onError={() => setFailed(true)}
         />
+      ) : (
+        <span className="clip-thumb-fallback">
+          <Icon name="film" size={18} />
+        </span>
+      )}
+      <span className="clip-rank num">{rank ? String(rank).padStart(2, '0') : '--'}</span>
+      <span className="clip-duration num">{formatTime(duration)}</span>
+      {verdict ? (
+        <span className="clip-verdict" data-verdict={verdict}>
+          <Icon name={verdict === 'approve' ? 'check' : 'x'} size={11} />
+          {verdict === 'approve' ? 'Approved' : 'Rejected'}
+        </span>
       ) : null}
-      <span className="thumb-rank">{rank ? String(rank).padStart(2, '0') : '--'}</span>
-      {hook ? <span className="thumb-hook">{hook}</span> : null}
-    </div>
+    </span>
   )
 }
 
-export function ClipCard({ clip, mediaSrc, selected, verdict, onSelect, onVerdict }: Props) {
+export function ClipCard({
+  clip,
+  mediaSrc,
+  selected,
+  verdict,
+  view,
+  onSelect,
+  onOpen,
+  onVerdict,
+  onMenu,
+}: ClipCardProps) {
   const hook = clip.llm?.hook ?? ''
   const score = Math.round((clip.final || 0) * 100)
-  const words = clip.features?.word_count ?? clip.text.split(' ').length
+  const duration = Math.max(0, clip.end - clip.start)
 
   return (
-    <div
-      className="clip"
-      data-selected={selected}
-      data-verdict={verdict ?? undefined}
-      onClick={onSelect}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onSelect()
-        }
+    <article
+      className="clip-card"
+      data-selected={selected ? 'true' : undefined}
+      data-verdict={verdict}
+      data-view={view}
+      role="listitem"
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onMenu({ x: event.clientX, y: event.clientY })
       }}
     >
-      <ClipThumb src={mediaSrc} seekTo={clip.start + 2} hook={hook} rank={clip.rank} />
+      <button
+        type="button"
+        className="clip-hit"
+        onClick={onSelect}
+        onDoubleClick={onOpen}
+        aria-current={selected ? 'true' : undefined}
+        title="Select clip · double-click to open in the monitor"
+      >
+        <ClipThumb
+          src={mediaSrc}
+          seekTo={clip.start + Math.min(2.5, duration / 3)}
+          rank={clip.rank}
+          duration={duration}
+          verdict={verdict}
+        />
 
-      <div className="clip-body">
-        <p className={`clip-hook${hook ? '' : ' placeholder'}`}>
-          {hook || 'no hook generated'}
-        </p>
-        <div className="clip-meta">
-          <span>{formatTime(clip.start)}</span>
-          <span className="sep" />
-          <span>{Math.round(clip.end - clip.start)}s</span>
-          <span className="sep" />
-          <span>{words} words</span>
-          {clip.llm?.provider && clip.llm.provider !== 'llama-server' ? (
-            <>
-              <span className="sep" />
-              <span style={{ color: 'var(--warn)' }}>{clip.llm.provider}</span>
-            </>
-          ) : null}
-        </div>
-        <div className="clip-why">{clip.llm?.reason || 'no scoring reason recorded'}</div>
-      </div>
+        <span className="clip-main">
+          <span className="clip-heading">
+            <span className="clip-badge mono">
+              CLIP {clip.rank ? String(clip.rank).padStart(2, '0') : '—'}
+            </span>
+            <span className="clip-timecode num">
+              {formatTime(clip.start)} → {formatTime(clip.end)}
+            </span>
+            {clip.blocked ? <span className="clip-blocked">blocked</span> : null}
+          </span>
 
-      <div className="clip-right">
-        <div className="score-block">
-          <div className="score-value">{String(score).padStart(3, '0')}</div>
-          <div className="score-rule" style={{ width: `${Math.max(8, score)}%` }} />
-          <ScoreBars signals={clip.signals} />
-        </div>
-        <div className="verdict-row">
-          <button
-            type="button"
-            className="icon-btn"
-            data-on={verdict === 'approve'}
-            title="Approve (A)"
-            onClick={(event) => {
-              event.stopPropagation()
-              onVerdict(verdict === 'approve' ? 'undo' : 'approve')
-            }}
-          >
-            ✓
-          </button>
-          <button
-            type="button"
-            className="icon-btn reject"
-            data-on={verdict === 'reject'}
-            title="Reject (X)"
-            onClick={(event) => {
-              event.stopPropagation()
-              onVerdict(verdict === 'reject' ? 'undo' : 'reject')
-            }}
-          >
-            ✕
-          </button>
-        </div>
+          <span className={`clip-hook ${hook ? '' : 'is-placeholder'}`}>
+            {hook || clip.text}
+          </span>
+        </span>
+
+        <span className="clip-figure" aria-label={`Score ${score} out of 100`}>
+          <span className="clip-score num">{String(score).padStart(3, '0')}</span>
+          <span className="clip-score-label">score</span>
+        </span>
+      </button>
+
+      <div className="clip-actions">
+        <IconButton
+          icon="check"
+          size="sm"
+          label={verdict === 'approve' ? 'Undo approval' : 'Approve clip'}
+          active={verdict === 'approve'}
+          onClick={() => onVerdict(verdict === 'approve' ? 'undo' : 'approve')}
+        />
+        <IconButton
+          icon="x"
+          size="sm"
+          label={verdict === 'reject' ? 'Undo rejection' : 'Reject clip'}
+          active={verdict === 'reject'}
+          onClick={() => onVerdict(verdict === 'reject' ? 'undo' : 'reject')}
+        />
+        <IconButton
+          icon="more"
+          size="sm"
+          label="Clip actions"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect()
+            onMenu({ x: rect.right - 2, y: rect.bottom + 2 })
+          }}
+        />
       </div>
-    </div>
+    </article>
   )
 }

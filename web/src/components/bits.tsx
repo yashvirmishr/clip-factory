@@ -1,28 +1,28 @@
 import type { GateResult, LearnState, ScoreItem } from '../types'
+import { Icon } from '../workspace/Icon'
 
-const SIGNAL_LABELS: Record<string, string> = {
-  audio: 'AUD',
-  chat: 'CHAT',
-  hook_lexicon: 'HOOK',
-}
+const SIGNALS: Array<{ key: string; label: string }> = [
+  { key: 'audio', label: 'Audio' },
+  { key: 'chat', label: 'Chat' },
+  { key: 'hook_lexicon', label: 'Hook' },
+]
 
 export function ScoreBars({ signals }: { signals: Record<string, number> }) {
-  const keys = ['audio', 'chat', 'hook_lexicon']
   return (
-    <>
-      <div className="bars">
-        {keys.map((key) => (
-          <span className="bar" key={key} data-key={key}>
-            <i style={{ width: `${Math.round((signals[key] ?? 0) * 100)}%` }} />
-          </span>
-        ))}
-      </div>
-      <div className="bars-legend">
-        {keys.map((key) => (
-          <span key={key}>{SIGNAL_LABELS[key]}</span>
-        ))}
-      </div>
-    </>
+    <div className="signal-rows">
+      {SIGNALS.map(({ key, label }) => {
+        const value = Math.round((signals[key] ?? 0) * 100)
+        return (
+          <div className="signal-row" key={key}>
+            <span className="signal-label">{label}</span>
+            <span className="signal-track" aria-hidden="true">
+              <i style={{ width: `${value}%` }} data-signal={key} />
+            </span>
+            <span className="signal-value num">{value}</span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -32,9 +32,11 @@ export function TruthList({ items }: { items: ScoreItem[] }) {
     <div className="truth-list">
       {items.map((item) => (
         <div className="truth" key={item.id} data-ok={item.passed}>
-          <span className="mark">{item.passed ? '✓' : '✕'}</span>
-          <span>{item.label}</span>
-          {item.detail ? <span className="detail">{item.detail}</span> : null}
+          <span className="truth-mark" aria-hidden="true">
+            <Icon name={item.passed ? 'check' : 'x'} size={12} />
+          </span>
+          <span className="truth-label">{item.label}</span>
+          {item.detail ? <span className="truth-detail">{item.detail}</span> : null}
         </div>
       ))}
     </div>
@@ -44,107 +46,103 @@ export function TruthList({ items }: { items: ScoreItem[] }) {
 export function GateWarnings({ gates }: { gates: GateResult[] }) {
   const failed = gates.filter((gate) => !gate.passed)
   if (!failed.length) {
-    return <div className="panel-note">Every gate passed. Nothing flagged.</div>
+    return (
+      <p className="panel-note panel-note-ok">
+        <Icon name="check" size={13} />
+        Every gate passed. Nothing flagged.
+      </p>
+    )
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div className="gate-list">
       {failed.map((gate) => (
-        <div className="warn-line" key={gate.id}>
-          <span className="mono" style={{ fontSize: 10, opacity: 0.7 }}>
-            {gate.severity === 'block' ? '■' : '▲'}
-          </span>
-          <span>
-            <b style={{ fontWeight: 500, color: 'inherit' }}>{gate.id.replace(/_/g, ' ')}</b>
-            {gate.detail ? ` — ${gate.detail}` : ''}
-          </span>
+        <div className="gate" key={gate.id} data-severity={gate.severity}>
+          <Icon name="alert" size={13} />
+          <div>
+            <b>{gate.id.replace(/_/g, ' ')}</b>
+            {gate.detail ? <span>{gate.detail}</span> : null}
+          </div>
+          <span className="gate-severity">{gate.severity}</span>
         </div>
       ))}
     </div>
   )
 }
 
-export function Panel({
-  title,
-  aside,
-  children,
-}: {
-  title: string
-  aside?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <section className="panel">
-      <header className="panel-head">
-        <span className="label" style={{ color: 'var(--ink-2)' }}>
-          {title}
-        </span>
-        {aside ? <div style={{ marginLeft: 'auto' }}>{aside}</div> : null}
-      </header>
-      <div className="panel-body">{children}</div>
-    </section>
-  )
-}
-
 export function LearningPanel({ learn }: { learn: LearnState | null }) {
-  if (!learn) return null
+  if (!learn) {
+    return (
+      <section className="panel learning-card">
+        <header className="panel-head">
+          <span className="label">Model growth</span>
+        </header>
+        <p className="panel-note">Learning state is unavailable while the sidecar is offline.</p>
+      </section>
+    )
+  }
+
   const pct = Math.round(learn.progress_to_ranker * 100)
-  const auc = learn.ranker_holdout_auc
+  const remaining = Math.max(0, learn.learning_threshold - learn.decisions)
+
   return (
-    <section className="panel">
+    <section className="panel learning-card">
       <header className="panel-head">
-        <span className="label" style={{ color: 'var(--ink-2)' }}>
-          Model growth
-        </span>
-        <span style={{ marginLeft: 'auto' }}>
-          {learn.ranker_active ? (
-            <span className="pill ok">ranker live</span>
-          ) : (
-            <span className="pill">{learn.decisions}/{learn.learning_threshold}</span>
-          )}
-        </span>
+        <span className="label">Model growth</span>
+        {learn.ranker_active ? (
+          <span className="pill ok">
+            <i aria-hidden="true" /> ranker live
+          </span>
+        ) : (
+          <span className="pill">
+            <span className="num">{learn.decisions}</span>/<span className="num">{learn.learning_threshold}</span>
+          </span>
+        )}
       </header>
-      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div className="meter">
+      <div className="panel-body">
+        <div
+          className="meter"
+          role="progressbar"
+          aria-label="Progress to a personal re-ranker"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={learn.ranker_active ? 100 : pct}
+        >
           <i style={{ width: `${learn.ranker_active ? 100 : pct}%` }} />
         </div>
-        <p className="panel-note" style={{ margin: 0 }}>
+        <p className="panel-note">
           {learn.ranker_active
-            ? `Personal re-ranker is live — held-out AUC ${auc?.toFixed(3) ?? '—'}.`
-            : `Approve or reject ${Math.max(0, learn.learning_threshold - learn.decisions)} more clips to train your re-ranker.`}
+            ? `Personal re-ranker is live — held-out AUC ${learn.ranker_holdout_auc?.toFixed(3) ?? '—'} on ${learn.ranker_samples} samples.`
+            : `Approve or reject ${remaining} more clips to train your re-ranker.`}
         </p>
-        <div className="stat-grid" style={{ margin: '0 -10px -10px' }}>
-          <div className="stat">
-            <div className="stat-value">{learn.quality.approvals}</div>
-            <div className="stat-label">approved</div>
+        <dl className="learning-stats">
+          <div>
+            <dt>Approved</dt>
+            <dd className="num">{learn.labels.approve}</dd>
           </div>
-          <div className="stat">
-            <div className="stat-value">{learn.quality.rejections}</div>
-            <div className="stat-label">rejected</div>
+          <div>
+            <dt>Rejected</dt>
+            <dd className="num">{learn.labels.reject}</dd>
           </div>
-          <div className="stat">
-            <div className="stat-value">{learn.hook_edits}</div>
-            <div className="stat-label">hook edits</div>
+          <div>
+            <dt>Hook edits</dt>
+            <dd className="num">{learn.hook_edits}</dd>
           </div>
-          <div className="stat">
-            <div className="stat-value">
-              {learn.quality.approval_rate ? `${Math.round(learn.quality.approval_rate * 100)}%` : '—'}
+          <div>
+            <dt>Approval</dt>
+            <dd className="num">
+              {learn.quality.decisions ? `${Math.round(learn.quality.approval_rate * 100)}%` : '—'}
+            </dd>
+          </div>
+        </dl>
+        {learn.ranker_history.length ? (
+          <div className="learning-history">
+            <span className="label">AUC history</span>
+            <div className="sparkline" aria-hidden="true">
+              {learn.ranker_history.slice(-12).map((point) => (
+                <i key={point.at} style={{ height: `${Math.max(8, point.auc * 100)}%` }} title={point.auc.toFixed(3)} />
+              ))}
             </div>
-            <div className="stat-label">approval rate</div>
           </div>
-        </div>
-        {learn.style_profile ? (
-          <p
-            className="panel-note"
-            style={{
-              margin: 0,
-              borderTop: '1px solid var(--seam)',
-              paddingTop: 9,
-              whiteSpace: 'pre-line',
-              color: 'var(--ink-2)',
-            }}
-          >
-            {learn.style_profile}
-          </p>
         ) : null}
       </div>
     </section>

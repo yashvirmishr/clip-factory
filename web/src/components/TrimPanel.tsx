@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { api, formatTime } from '../api'
+import { api, formatTimecode } from '../api'
 import type { Clip } from '../types'
+import { Icon } from '../workspace/Icon'
 
 interface Props {
   sourceId: string
   clip: Clip
+  fps: number
   onTrimmed: (clip: Clip) => void
   onSeek: (seconds: number) => void
 }
@@ -21,7 +23,7 @@ const NUDGE = 0.5
  * judge. The server enforces both again — the disabled states here are a hint,
  * not the guarantee.
  */
-export function TrimPanel({ sourceId, clip, onTrimmed, onSeek }: Props) {
+export function TrimPanel({ sourceId, clip, fps, onTrimmed, onSeek }: Props) {
   const [start, setStart] = useState(clip.start)
   const [end, setEnd] = useState(clip.end)
   const [busy, setBusy] = useState(false)
@@ -62,81 +64,82 @@ export function TrimPanel({ sourceId, clip, onTrimmed, onSeek }: Props) {
   }
 
   return (
-    <section className="panel">
-      <header className="panel-head">
-        <span className="label" style={{ color: 'var(--ink-2)' }}>
-          Trim
+    <details className="inspector-section inspector-fold">
+      <summary className="section-head">
+        <div>
+          <span className="label">Trim</span>
+          <h3>
+            {formatTimecode(start, fps)} → {formatTimecode(end, fps)}
+          </h3>
+        </div>
+        <span className="fold-tail">
+          <span className="pill numeric">{duration.toFixed(1)}s</span>
+          <Icon name="chevron-down" size={13} />
         </span>
-        <span className="mono" style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-3)' }}>
-          {formatTime(start)} → {formatTime(end)} · {duration.toFixed(1)}s
-        </span>
-      </header>
-      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      </summary>
+      <div className="section-body stack-10">
         {(['start', 'end'] as const).map((edge) => (
-          <div key={edge} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="label" style={{ width: 34 }}>
-              {edge === 'start' ? 'IN' : 'OUT'}
-            </span>
-            <button className="btn sm" type="button" onClick={() => nudge(edge, -NUDGE)} aria-label={`${edge} earlier`}>
-              −
-            </button>
-            <input
-              className="mono"
-              type="number"
-              step="0.1"
-              value={edge === 'start' ? start : end}
-              onChange={(event) => {
-                const value = Number(event.target.value)
-                if (Number.isFinite(value)) {
-                  if (edge === 'start') setStart(value)
-                  else setEnd(value)
-                }
-              }}
-              style={{
-                width: 82,
-                background: 'var(--raised)',
-                border: '1px solid var(--seam)',
-                borderRadius: 4,
-                color: 'var(--ink)',
-                padding: '3px 6px',
-                fontSize: 11,
-              }}
-            />
-            <button className="btn sm" type="button" onClick={() => nudge(edge, NUDGE)} aria-label={`${edge} later`}>
-              +
-            </button>
-            <button
-              className="btn sm"
-              type="button"
-              style={{ marginLeft: 'auto' }}
-              onClick={() => onSeek(edge === 'start' ? start : end)}
-            >
+          <div className="trim-row" key={edge}>
+            <span className="trim-edge">{edge === 'start' ? 'IN' : 'OUT'}</span>
+            <div className="trim-nudge">
+              <button type="button" className="btn icon sm" onClick={() => nudge(edge, -NUDGE)} aria-label={`${edge} earlier`}>
+                <Icon name="minus" size={12} />
+              </button>
+              <label className="trim-input">
+                <span className="sr-only">{edge === 'start' ? 'In point' : 'Out point'}, seconds</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={(edge === 'start' ? start : end).toFixed(1)}
+                  onChange={(event) => {
+                    const value = Number(event.target.value)
+                    if (Number.isFinite(value)) {
+                      if (edge === 'start') setStart(value)
+                      else setEnd(value)
+                    }
+                  }}
+                />
+                <span>s</span>
+              </label>
+              <button type="button" className="btn icon sm" onClick={() => nudge(edge, NUDGE)} aria-label={`${edge} later`}>
+                <Icon name="plus" size={12} />
+              </button>
+            </div>
+            <button type="button" className="btn ghost sm" onClick={() => onSeek(edge === 'start' ? start : end)}>
               Show
             </button>
           </div>
         ))}
 
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <div className="trim-actions">
           <button
-            className="btn sm primary"
             type="button"
+            className="btn sm primary"
             disabled={busy || !dirty || invalid}
             onClick={() => void apply()}
           >
-            {busy ? 'applying…' : 'Apply trim'}
+            {busy ? 'Applying…' : 'Apply trim'}
           </button>
-          <button className="btn sm" type="button" disabled={busy || !dirty} onClick={reset}>
+          <button type="button" className="btn sm ghost" disabled={busy || !dirty} onClick={reset}>
             Reset
           </button>
+          <span className="toolbar-spacer" />
+          <span className="field-hint">5–90s</span>
         </div>
 
         {invalid ? (
           <span className="warn-line">
+            <Icon name="alert" size={13} />
             Clips must stay between {MIN_DURATION}s and {MAX_DURATION}s.
           </span>
         ) : null}
-        {error ? <span className="warn-line">{error}</span> : null}
+        {error ? (
+          <span className="warn-line">
+            <Icon name="alert" size={13} />
+            {error}
+          </span>
+        ) : null}
       </div>
-    </section>
+    </details>
   )
 }
