@@ -102,10 +102,10 @@ If Electron exits with `app is undefined`, unset `ELECTRON_RUN_AS_NODE` for that
 
 ## First clip
 
-1. Open the **Project** panel on the left.
-2. Choose **Demo stream** for a generated three-minute source, or paste a file path / VOD URL into **Add a source** and choose **Ingest**.
+1. Open the **Library** area in the left rail.
+2. Choose **Demo stream** for a generated three-minute source, or press **Add source** and paste a file path / VOD URL.
 3. Choose **Analyze**. The header shows Audio, Transcribe, Signals, Score and Select progress.
-4. Open the **Clips** tab. The selected clip appears in the **Inspector** and the **Monitor**.
+4. Open the **Clips** area. The selected clip appears in the **Inspector** and the **Monitor**.
 5. Approve or reject a few clips. Rejections can carry a short reason, which feeds the local learning loop.
 6. Open **Output** in the Inspector, pick a caption preset and framing mode, then choose **Render clip**.
 7. Download the MP4, bake the whole reel, or use **Handoff** to export a bundle with OTIO, FCP7 XML, FCP X XML or EDL.
@@ -114,7 +114,7 @@ If no ASR model or whisper binary is installed, transcription falls back to an A
 
 ## Hardware and models
 
-Open **Hardware & models** from the Project panel footer, the header chip, or **File → Hardware & models**.
+Open **Hardware & models** from the rail's **Settings** menu, the setup banner, or **File → Hardware & models**.
 
 The dialog reports CPU, memory, GPU, CUDA/Vulkan, free disk, ffmpeg and the recommended tier. The **Models** section lists curated ASR, VAD, scoring and face-tracking files with size, fit and install state.
 

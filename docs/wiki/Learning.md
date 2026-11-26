@@ -94,7 +94,7 @@ Suggestions are rules over observable evidence, not an LLM guessing at quality. 
 - It does not log into your accounts or scrape a profile page. Only OAuth on accounts you connect.
 - It does not train on other people's accounts, and it does not upload the ranking model anywhere.
 - It does not promise that a higher score means more views. The model predicts your observed engagement; that is a local correlation, not a virality forecast.
-- It does not post without the Publish panel's explicit **Queue upload** action, and it does not schedule posts.
+- It does not post without the Publish area's explicit **Queue upload** action, and it does not schedule posts.
 - It does not learn from TikTok or Instagram yet; those analytics adapters are not enabled.
 
 ---

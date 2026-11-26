@@ -4,7 +4,7 @@ Clip Factory is a local-first cutting room for turning long videos into vertical
 
 It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, asks a model to judge a shortlist, and puts the result in an editor. You review the evidence, adjust the hook and trim, then render a 1080 × 1920 master or hand the whole reel to another editor as a timeline.
 
-![The Clips workspace in Triage](images/workspace-reel.png)
+![The Clips area: ranked reel with the inspector](images/workspace-reel.png)
 
 ## The two ideas behind it
 
@@ -17,7 +17,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | Page | What it covers |
 |---|---|
 | [Getting Started](Getting-Started.md) | Install, run, and cut a first clip |
-| [The Workspace](The-Workspace.md) | Panels, tabs, workspaces, shortcuts and themes |
+| [The Workspace](The-Workspace.md) | Areas, rail, tabs, inspector, shortcuts and themes |
 | [Reviewing Clips](Reviewing-Clips.md) | Read the reel, approve or reject, edit hooks and trims |
 | [Rendering and Export](Rendering-and-Export.md) | Captions, framing, MP4 output and NLE handoff |
 | [Publishing](Publishing.md) | Upload to YouTube or X with your own developer app |
@@ -38,7 +38,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 5. **Check the monitor.** Captions, 9:16 guides, loop and frame stepping sit in one transport.
 6. **Render.** Pick a caption preset and framing mode. The MP4 is written locally.
 7. **Hand off.** Bake finished MP4s, or export a bundle with OTIO, FCP7 XML, FCP X XML and SRT/VTT captions.
-8. **Publish, then learn.** Queue the render to YouTube or X from the Output tab, then let the Accounts tab sync how it did.
+8. **Publish, then learn.** Queue the render to YouTube or X from the Output tab, then let **Publish → Accounts** sync how it did.
 
 ## What is in the box
 
@@ -52,7 +52,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | Handoff | Zip bundle, OTIO, FCP7 XML, FCP X XML, EDL, SRT/VTT; bake to MP4s; media referenced by absolute path |
 | Publish | Direct YouTube or X upload from a rendered MP4, durable retry queue, bring-your-own OAuth client |
 | Learning | Local decision log and taste re-ranker, connected-account engagement analytics, gated weekly personal model, evidence-based coach suggestions |
-| Interface | Collapsible, resizable panels, floating inspector, three workspace presets, command palette, context menus, six built-in themes |
+| Interface | Library / Clips / Publish areas, one header per area, resizable floating inspector, command palette, context menus, six built-in themes |
 
 ## Local by default
 

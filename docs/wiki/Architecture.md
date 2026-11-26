@@ -110,8 +110,8 @@ web/src/
   api.ts                   typed HTTP client and formatting helpers
   types.ts                 shared response shapes
   styles.css               hand-authored shell and component styles
-  components/              ProjectPanel, Reel, Monitor, Inspector, Timeline, ...
-  workspace/               MenuBar, Tabs, Resizer, ContextMenu, CommandPalette, ...
+  components/              LibraryArea, PublishArea, Reel, Monitor, Inspector, Timeline, ...
+  workspace/               Rail, SourcePicker, MenuBar, StatusBar, CommandPalette, ...
   theme/                   compile, persistence, atelier, preview, built-in themes
 ```
 
@@ -119,7 +119,7 @@ There is no router. `App.tsx` is the composition root: it owns the selected sour
 
 Caption pages are cached per clip in `api.ts` (the last 24) and forgotten by `forgetCaptions` when a trim or a re-analysis changes the words. The clip id does not change on a trim, so without that explicit invalidation the captions tab would keep showing the pages from before the cut. A command is a single object with an id, label, group, icon, shortcut, disabled flag and run function; the menu bar, palette and context menus read from that registry. The global key handler mirrors the common shortcuts explicitly, because it also has to defer to focused inputs and dialogs.
 
-Panel geometry and view state live under `clip-factory.workspace.v2`. Theme state lives under `clip-factory.theme.v1`. Nothing in the workspace layout is sent to the API.
+Area, panel geometry and view state live under `clip-factory.workspace.v2`. Theme state lives under `clip-factory.theme.v1`. Nothing in the workspace layout is sent to the API.
 
 The Timeline draws to a canvas and reads its colours from the compiled theme tokens, so it follows the active room rather than hardcoding a palette.
 

@@ -12,12 +12,13 @@ interface StatusBarProps {
   sourceName: string | null
   duration: number
   clipLabel: string | null
-  leftOpen: boolean
+  asrBackend: string | null
+  llmBackend: string | null
+  chatMessages: number | null
+  compact: boolean
   rightOpen: boolean
-  onToggleLeft: () => void
   onToggleRight: () => void
   onOpenShortcuts: () => void
-  workspaceLabel: string
   themeName: string
   themeSwatch: string
   onOpenThemes: () => void
@@ -31,12 +32,13 @@ export const StatusBar = memo(function StatusBar({
   sourceName,
   duration,
   clipLabel,
-  leftOpen,
+  asrBackend,
+  llmBackend,
+  chatMessages,
+  compact,
   rightOpen,
-  onToggleLeft,
   onToggleRight,
   onOpenShortcuts,
-  workspaceLabel,
   themeName,
   themeSwatch,
   onOpenThemes,
@@ -79,6 +81,21 @@ export const StatusBar = memo(function StatusBar({
       </div>
 
       <div className="status-right">
+        <span className="status-engine" data-off={!asrBackend ? 'true' : undefined} title="Speech model">
+          <i aria-hidden="true" />
+          <b>{asrBackend || 'speech off'}</b>
+        </span>
+        <span className="status-engine" data-off={!llmBackend ? 'true' : undefined} title="Ranking model">
+          <i aria-hidden="true" />
+          <b>{llmBackend || 'ranking off'}</b>
+        </span>
+        {chatMessages ? (
+          <span className="status-engine" title={`${chatMessages.toLocaleString()} chat messages`}>
+            <i aria-hidden="true" />
+            <b>{chatMessages.toLocaleString()} chat</b>
+          </span>
+        ) : null}
+        <span className="status-divider" aria-hidden="true" />
         <button
           type="button"
           className="status-theme"
@@ -90,27 +107,15 @@ export const StatusBar = memo(function StatusBar({
           <span className="status-theme-name">{themeName}</span>
         </button>
         <span className="status-divider" aria-hidden="true" />
-        <span className="status-workspace" title="Active workspace">
-          <Icon name="layers" size={12} />
-          {workspaceLabel}
-        </span>
-        <span className="status-divider" aria-hidden="true" />
-        <IconButton
-          icon="panel-left"
-          size="sm"
-          className="status-panel-toggle"
-          label={leftOpen ? 'Hide project panel' : 'Show project panel'}
-          active={leftOpen}
-          onClick={onToggleLeft}
-        />
-        <IconButton
-          icon="panel-right"
-          size="sm"
-          className="status-panel-toggle"
-          label={rightOpen ? 'Hide inspector' : 'Show inspector'}
-          active={rightOpen}
-          onClick={onToggleRight}
-        />
+        {compact ? (
+          <IconButton
+            icon="panel-right"
+            size="sm"
+            label={rightOpen ? 'Hide inspector' : 'Show inspector'}
+            active={rightOpen}
+            onClick={onToggleRight}
+          />
+        ) : null}
         <IconButton icon="keyboard" size="sm" label="Keyboard shortcuts" onClick={onOpenShortcuts} />
       </div>
     </footer>

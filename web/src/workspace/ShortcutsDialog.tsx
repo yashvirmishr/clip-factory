@@ -2,12 +2,12 @@ import { Modal } from './Modal'
 
 const GROUPS: Array<{ title: string; rows: Array<[string, string[]]> }> = [
   {
-    title: 'Workspace',
+    title: 'Areas',
     rows: [
       ['Command palette', ['Ctrl', 'K']],
-      ['Toggle project panel', ['Ctrl', 'B']],
-      ['Toggle inspector', ['Ctrl', 'Shift', 'B']],
+      ['Library / Clips / Publish', ['Ctrl', '1', '2', '3']],
       ['Clips / Monitor / Timeline', ['1', '2', '3']],
+      ['Toggle inspector', ['Ctrl', 'B']],
       ['Keyboard shortcuts', ['?']],
     ],
   },

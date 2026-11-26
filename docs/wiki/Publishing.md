@@ -30,7 +30,7 @@ The app asks for `tweet.read`, `tweet.write`, `users.read`, `media.write` and `o
 
 ## Connecting
 
-Open **Project → Accounts**, choose YouTube or X, paste the client ID and secret, and press **Connect**. The tab shows the callback URL with a copy button: it embeds port 8756, so a backend running on another port needs that URL registered with the provider as well. The consent page opens in a browser tab. Approving it lands on the loopback callback, stores the account and shows a confirmation page. Return to Clip Factory; the Accounts tab refreshes when the window regains focus.
+Open **Publish → Accounts**, choose YouTube or X, paste the client ID and secret, and press **Connect**. The tab shows the callback URL with a copy button: it embeds port 8756, so a backend running on another port needs that URL registered with the provider as well. The consent page opens in a browser tab. Approving it lands on the loopback callback, stores the account and shows a confirmation page. Return to Clip Factory; the Accounts tab refreshes when the window regains focus.
 
 The client secret and token bundle are stored in the credential store, not in SQLite or the config file. A code expires after ten minutes. **Disconnect** revokes the token where the provider supports revocation and removes the local account. TikTok and Instagram are listed so the boundary is visible, but their upload adapters are not enabled yet.
 

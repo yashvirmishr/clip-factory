@@ -5,9 +5,9 @@ a tour, and every step can be skipped.
 
 ## 1. One long video in
 
-Drop a file into the **Add a source** box, paste a link, or press **Demo stream**.
-The demo is a real video that needs no models, so it is the fastest way to see
-the whole shape of the app.
+Open the **Library** area. Press **Add source** for a file or a link, or press
+**Demo stream**. The demo is a real video that needs no models, so it is the
+fastest way to see the whole shape of the app.
 
 ## 2. Is this computer ready?
 
@@ -24,13 +24,13 @@ Nothing here blocks you. Press **Continue** and fix what you like later, from
 
 ## 3. Let it watch the whole thing
 
-Press **Analyze**. The status bar names the current step in plain words:
+Open **Clips** and press **Analyze** in the header. The status bar names the current step in plain words:
 Listening, Reading speech, Finding moments, Scoring, Picking clips. A four-minute
 video takes under a minute on a laptop.
 
 ## 4. Read what it found
 
-The **Clips** tab lists what it kept. Each card shows the hook, what the model
+The **Clips** area lists what it kept. Each card shows the hook, what the model
 noticed, and the score. Open one to see the full picture in the inspector.
 
 ## 5. You get the last word

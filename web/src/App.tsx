@@ -16,24 +16,26 @@ import type {
   Verdict,
 } from './types'
 import { Inspector, type InspectorTab } from './components/Inspector'
+import { LibraryArea } from './components/LibraryArea'
 import { Monitor, type MonitorHandle, type OverlayMode } from './components/Monitor'
-import { ProjectPanel } from './components/ProjectPanel'
+import { PublishArea } from './components/PublishArea'
 import { Reel, REJECT_REASONS, type ClipFilter, type ClipSort, type ClipView } from './components/Reel'
 import { Timeline } from './components/Timeline'
 import { UrlSheet, type UrlChoice } from './components/UrlSheet'
 import { CommandPalette } from './workspace/CommandPalette'
 import { ContextMenu } from './workspace/ContextMenu'
-import { Icon, type IconName } from './workspace/Icon'
+import { Icon } from './workspace/Icon'
 import { InspectorFrame, type FloatRect } from './workspace/InspectorFrame'
 import { MenuBar } from './workspace/MenuBar'
 import { setPlayhead } from './workspace/playhead'
+import { Rail, type Area } from './workspace/Rail'
 import { Resizer } from './workspace/Resizer'
+import { SourcePicker } from './workspace/SourcePicker'
 import { StatusBar } from './workspace/StatusBar'
-import { Tabs } from './workspace/Tabs'
 import type { AppCommand, MenuDefinition } from './workspace/types'
 import { useMediaQuery } from './workspace/useMediaQuery'
 import { usePersistentState } from './workspace/usePersistentState'
-import { IconButton } from './workspace/ui'
+import { IconButton, Segmented } from './workspace/ui'
 import { useTheme } from './theme/useTheme'
 import { TourOverlay } from './tour/TourOverlay'
 import { useTour } from './tour/useTour'
@@ -71,19 +73,15 @@ interface Toast {
 }
 
 type CentreTab = 'reel' | 'monitor' | 'timeline'
-type WorkspacePreset = 'triage' | 'editing' | 'review'
-type ProjectTab = 'project' | 'insights' | 'accounts'
 
 interface LayoutState {
-  leftWidth: number
+  area: Area
   rightWidth: number
-  leftOpen: boolean
   rightOpen: boolean
   inspectorFloating: boolean
   floatRect: FloatRect
   centreTab: CentreTab
   inspectorTab: InspectorTab
-  projectTab: ProjectTab
   clipFilter: ClipFilter
   clipSort: ClipSort
   clipView: ClipView
@@ -91,7 +89,6 @@ interface LayoutState {
   monitorOverlay: OverlayMode
   monitorLoop: boolean
   monitorGuides: boolean
-  workspace: WorkspacePreset
 }
 
 interface ContextState {
@@ -115,15 +112,13 @@ function defaultFloatRect(): FloatRect {
 }
 
 const DEFAULT_LAYOUT: LayoutState = {
-  leftWidth: 264,
+  area: 'clips',
   rightWidth: 400,
-  leftOpen: true,
   rightOpen: true,
   inspectorFloating: false,
   floatRect: defaultFloatRect(),
   centreTab: 'reel',
   inspectorTab: 'properties',
-  projectTab: 'project',
   clipFilter: 'all',
   clipSort: 'rank',
   clipView: 'list',
@@ -131,50 +126,6 @@ const DEFAULT_LAYOUT: LayoutState = {
   monitorOverlay: 'hook',
   monitorLoop: false,
   monitorGuides: false,
-  workspace: 'triage',
-}
-
-const WORKSPACES: Array<{ id: WorkspacePreset; label: string; icon: IconName; hint: string }> = [
-  { id: 'triage', label: 'Sort clips', icon: 'list', hint: 'Clip list, inspector and project bin' },
-  { id: 'editing', label: 'Editing', icon: 'scissors', hint: 'Monitor, timeline and inspector' },
-  { id: 'review', label: 'Review', icon: 'monitor', hint: 'Full-frame review, panels stowed' },
-]
-
-const WORKSPACE_PRESETS: Record<
-  WorkspacePreset,
-  Partial<Pick<LayoutState, 'leftOpen' | 'rightOpen' | 'centreTab' | 'inspectorTab' | 'leftWidth' | 'rightWidth' | 'monitorOverlay' | 'monitorGuides' | 'monitorLoop'>>
-> = {
-  triage: {
-    leftOpen: true,
-    rightOpen: true,
-    centreTab: 'reel',
-    inspectorTab: 'properties',
-    leftWidth: 264,
-    rightWidth: 400,
-    monitorOverlay: 'hook',
-    monitorGuides: false,
-    monitorLoop: false,
-  },
-  editing: {
-    leftOpen: true,
-    rightOpen: true,
-    centreTab: 'monitor',
-    inspectorTab: 'properties',
-    leftWidth: 236,
-    rightWidth: 420,
-    monitorOverlay: 'captions',
-    monitorGuides: true,
-    monitorLoop: true,
-  },
-  review: {
-    leftOpen: false,
-    rightOpen: false,
-    centreTab: 'monitor',
-    inspectorTab: 'properties',
-    monitorOverlay: 'captions',
-    monitorGuides: true,
-    monitorLoop: true,
-  },
 }
 
 const MENUS: MenuDefinition[] = [
@@ -197,10 +148,13 @@ const MENUS: MenuDefinition[] = [
     id: 'view',
     label: 'View',
     items: [
+      'view.library',
+      'view.clips',
+      'view.publish',
+      '-',
       'view.palette',
       'view.themes',
       '-',
-      'view.toggleProject',
       'view.toggleInspector',
       'view.floatInspector',
       '-',
@@ -227,11 +181,6 @@ const MENUS: MenuDefinition[] = [
       'clip.previous',
     ],
   },
-  {
-    id: 'workspace',
-    label: 'Workspace',
-    items: ['workspace.triage', 'workspace.editing', 'workspace.review', '-', 'edit.resetWorkspace'],
-  },
   { id: 'help', label: 'Help', items: ['help.tour', 'help.shortcuts', 'help.setup', 'help.about'] },
 ]
 
@@ -253,7 +202,7 @@ function phaseStates(job: JobState | null, phases: typeof PHASES = PHASES): Reco
 export default function App() {
   const [layout, setLayout] = usePersistentState<LayoutState>('clip-factory.workspace.v2', DEFAULT_LAYOUT)
   const compact = useMediaQuery('(max-width: 1240px)')
-  const panelStateBeforeCompact = useRef<{ leftOpen: boolean; rightOpen: boolean } | null>(null)
+  const panelStateBeforeCompact = useRef<{ rightOpen: boolean } | null>(null)
   const theme = useTheme()
 
   const [sources, setSources] = useState<SourceRow[]>([])
@@ -415,14 +364,13 @@ export default function App() {
     void selectSource(target.id, true)
   }, [sources, selectedSourceId, selectSource])
 
-  // Clamp persisted widths once, so a layout saved on a larger display still
-  // opens as a working window on a smaller one.
+  // Clamp the persisted inspector width once, so a layout saved on a larger
+  // display still opens as a working window on a smaller one.
   useEffect(() => {
     setLayout((current) => {
-      const leftWidth = clamp(current.leftWidth, 220, 420)
       const rightWidth = clamp(current.rightWidth, 340, 560)
-      if (leftWidth === current.leftWidth && rightWidth === current.rightWidth) return current
-      return { ...current, leftWidth, rightWidth }
+      if (rightWidth === current.rightWidth) return current
+      return { ...current, rightWidth }
     })
   }, [setLayout])
 
@@ -453,14 +401,9 @@ export default function App() {
     if (compact) {
       setLayout((current) => {
         if (!panelStateBeforeCompact.current) {
-          panelStateBeforeCompact.current = {
-            leftOpen: current.leftOpen,
-            rightOpen: current.rightOpen,
-          }
+          panelStateBeforeCompact.current = { rightOpen: current.rightOpen }
         }
-        return current.leftOpen || current.rightOpen
-          ? { ...current, leftOpen: false, rightOpen: false }
-          : current
+        return current.rightOpen ? { ...current, rightOpen: false } : current
       })
       return
     }
@@ -935,9 +878,10 @@ export default function App() {
   const focusField = useCallback(
     (field: 'ingest' | 'source-search' | 'clip-search') => {
       if (field === 'clip-search') {
-        setLayout((current) => ({ ...current, centreTab: 'reel' }))
+        setLayout((current) => ({ ...current, area: 'clips', centreTab: 'reel' }))
       } else {
-        setLayout((current) => ({ ...current, leftOpen: true, projectTab: 'project' }))
+        setLayout((current) => ({ ...current, area: 'library' }))
+        window.dispatchEvent(new Event('clip-factory:focus-ingest'))
       }
       window.setTimeout(() => {
         const node = document.querySelector<HTMLInputElement>(`[data-field="${field}"]`)
@@ -949,20 +893,28 @@ export default function App() {
     [setLayout],
   )
 
-  const applyWorkspace = useCallback(
-    (name: WorkspacePreset) => {
-      const preset = WORKSPACE_PRESETS[name]
+  const goArea = useCallback(
+    (area: Area) => {
       setLayout((current) => ({
         ...current,
-        ...preset,
-        workspace: name,
-        ...(compact ? { leftOpen: false, rightOpen: false } : null),
+        area,
+        ...(compact && area === 'clips' ? { rightOpen: false } : null),
       }))
-      const label = WORKSPACES.find((item) => item.id === name)?.label ?? name
-      pushToast('info', `${label} workspace.`)
     },
-    [compact, setLayout, pushToast],
+    [compact, setLayout],
   )
+
+  // The tour crosses areas: ingest lives in the library, analysis and the
+  // verdict live in clips. Move the room before the spotlight lands.
+  useEffect(() => {
+    if (tour.state.status !== 'running') return
+    if (tour.step.id === 'add') {
+      goArea('library')
+      window.dispatchEvent(new Event('clip-factory:focus-ingest'))
+      return
+    }
+    goArea('clips')
+  }, [tour.state.status, tour.step.id, goArea])
 
   const openSetup = useCallback(async () => {
     setSetupOpen(true)
@@ -1085,12 +1037,15 @@ export default function App() {
         disabled: !selectedClip?.text,
         run: () => void copyText(selectedClip?.text ?? '', 'Transcript'),
       },
-      { id: 'edit.resetWorkspace', label: 'Reset workspace layout', group: 'Edit', icon: 'refresh', danger: true, run: () => { setLayout({ ...DEFAULT_LAYOUT, floatRect: defaultFloatRect() }); pushToast('ok', 'Workspace reset.') } },
+      { id: 'edit.resetWorkspace', label: 'Reset layout', group: 'Edit', icon: 'refresh', danger: true, run: () => { setLayout({ ...DEFAULT_LAYOUT, floatRect: defaultFloatRect() }); pushToast('ok', 'Layout reset.') } },
+
+      { id: 'view.library', label: 'Library', group: 'Go', icon: 'folder', shortcut: 'Ctrl 1', checked: layout.area === 'library', keywords: 'sources ingest bin area', run: () => goArea('library') },
+      { id: 'view.clips', label: 'Clips', group: 'Go', icon: 'film', shortcut: 'Ctrl 2', checked: layout.area === 'clips', keywords: 'reel monitor timeline area', run: () => goArea('clips') },
+      { id: 'view.publish', label: 'Publish', group: 'Go', icon: 'upload', shortcut: 'Ctrl 3', checked: layout.area === 'publish', keywords: 'uploads accounts performance area', run: () => goArea('publish') },
 
       { id: 'view.palette', label: 'Command palette', group: 'View', icon: 'command', shortcut: 'Ctrl K', run: () => setPaletteOpen(true) },
       { id: 'view.themes', label: 'Theme studio…', group: 'View', icon: 'palette', keywords: 'appearance color palette dark light marketplace studio', run: () => setThemesOpen(true) },
-      { id: 'view.toggleProject', label: 'Project panel', group: 'View', icon: 'panel-left', shortcut: 'Ctrl B', checked: layout.leftOpen, run: () => setLayout((current) => ({ ...current, leftOpen: !current.leftOpen })) },
-      { id: 'view.toggleInspector', label: 'Inspector', group: 'View', icon: 'panel-right', shortcut: 'Ctrl Shift B', checked: layout.rightOpen, run: () => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen })) },
+      { id: 'view.toggleInspector', label: 'Inspector', group: 'View', icon: 'panel-right', shortcut: 'Ctrl B', checked: layout.rightOpen, run: () => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen })) },
       { id: 'view.floatInspector', label: 'Float inspector', group: 'View', icon: 'grip', checked: layout.inspectorFloating, disabled: !layout.rightOpen, run: () => setLayout((current) => ({ ...current, inspectorFloating: !current.inspectorFloating })) },
       { id: 'view.reel', label: 'Clips tab', group: 'View', icon: 'film', shortcut: '1', checked: layout.centreTab === 'reel', run: () => setLayout((current) => ({ ...current, centreTab: 'reel' })) },
       { id: 'view.monitor', label: 'Monitor tab', group: 'View', icon: 'monitor', shortcut: '2', checked: layout.centreTab === 'monitor', run: () => setLayout((current) => ({ ...current, centreTab: 'monitor' })) },
@@ -1125,10 +1080,6 @@ export default function App() {
       { id: 'clip.next', label: 'Next clip', group: 'Clip', icon: 'chevron-down', shortcut: 'J', disabled: visibleClips.length < 2, run: () => stepClip(1) },
       { id: 'clip.previous', label: 'Previous clip', group: 'Clip', icon: 'chevron-up', shortcut: 'K', disabled: visibleClips.length < 2, run: () => stepClip(-1) },
 
-      { id: 'workspace.triage', label: 'Sort clips', group: 'Workspace', checked: layout.workspace === 'triage', run: () => applyWorkspace('triage') },
-      { id: 'workspace.editing', label: 'Editing workspace', group: 'Workspace', checked: layout.workspace === 'editing', run: () => applyWorkspace('editing') },
-      { id: 'workspace.review', label: 'Review workspace', group: 'Workspace', checked: layout.workspace === 'review', run: () => applyWorkspace('review') },
-
       { id: 'help.tour', label: 'Take the tour', group: 'Help', icon: 'sparkles', keywords: 'walkthrough guide onboarding first time', run: () => tour.start(true) },
       { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'Help', icon: 'keyboard', shortcut: '?', run: () => setShortcutsOpen(true) },
       { id: 'help.setup', label: 'Hardware & models', group: 'Help', icon: 'sliders', run: () => void openSetup() },
@@ -1137,7 +1088,6 @@ export default function App() {
     return Object.fromEntries(list.map((command) => [command.id, command]))
   }, [
     analysis,
-    applyWorkspace,
     chat,
     copyText,
     exportBundle,
@@ -1150,9 +1100,9 @@ export default function App() {
     layout.centreTab,
     layout.inspectorFloating,
     layout.inspectorTab,
-    layout.leftOpen,
+    layout.area,
     layout.rightOpen,
-    layout.workspace,
+    goArea,
     openSetup,
     pushToast,
     requestRender,
@@ -1300,12 +1250,12 @@ export default function App() {
       if (paletteOpen || shortcutsOpen || aboutOpen || setupOpen) return
     if (tour.state.status === 'running') return
 
-      if (mod && !event.shiftKey && event.key.toLowerCase() === 'b') {
+      if (mod && ['1', '2', '3'].includes(event.key)) {
         event.preventDefault()
-        setLayout((current) => ({ ...current, leftOpen: !current.leftOpen }))
+        goArea(event.key === '1' ? 'library' : event.key === '2' ? 'clips' : 'publish')
         return
       }
-      if (mod && event.shiftKey && event.key.toLowerCase() === 'b') {
+      if (mod && event.key.toLowerCase() === 'b') {
         event.preventDefault()
         setLayout((current) => ({ ...current, rightOpen: !current.rightOpen }))
         return
@@ -1316,7 +1266,7 @@ export default function App() {
 
       if (event.key === 'Escape') {
         setRejecting(null)
-        if (compact) setLayout((current) => ({ ...current, leftOpen: false, rightOpen: false }))
+        if (compact) setLayout((current) => ({ ...current, rightOpen: false }))
         return
       }
       if (event.key === '?' || (event.shiftKey && event.key === '/')) {
@@ -1393,6 +1343,7 @@ export default function App() {
   }, [
     aboutOpen,
     compact,
+    goArea,
     handleVerdict,
     layout.centreTab,
     paletteOpen,
@@ -1409,17 +1360,7 @@ export default function App() {
   const closeContext = useCallback(() => setContextMenu(null), [])
   const onRunCommand = useCallback((command: AppCommand) => command.run(), [])
 
-  const showLeft = !compact && layout.leftOpen
   const showRightDocked = !compact && layout.rightOpen && !layout.inspectorFloating
-  const columns = [
-    showLeft ? `${layout.leftWidth}px` : null,
-    showLeft ? '5px' : null,
-    'minmax(0, 1fr)',
-    showRightDocked ? '5px' : null,
-    showRightDocked ? `${layout.rightWidth}px` : null,
-  ]
-    .filter(Boolean)
-    .join(' ')
 
   const rejectingClip = clips.find((clip) => clip.id === rejecting) ?? null
 
@@ -1532,129 +1473,19 @@ export default function App() {
         onOpenShortcuts={() => setShortcutsOpen(true)}
       />
 
-      <header className="app-toolbar">
-        <div className="workspace-switch" role="group" aria-label="Workspace">
-          {WORKSPACES.map((workspace) => (
-            <button
-              type="button"
-              key={workspace.id}
-              className="workspace-button"
-              data-active={layout.workspace === workspace.id ? 'true' : undefined}
-              aria-label={workspace.label}
-              aria-pressed={layout.workspace === workspace.id}
-              title={workspace.hint}
-              onClick={() => applyWorkspace(workspace.id)}
-            >
-              <Icon name={workspace.icon} size={14} />
-              <span>{workspace.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <span className="toolbar-divider" aria-hidden="true" />
-
-        <div className="source-heading">
-          <span className="source-heading-name" title={selectedSource?.name ?? 'No source'}>
-            {selectedSource?.name ?? 'No source'}
-          </span>
-          {selectedSource ? (
-            <span className="source-heading-meta num">
-              {formatTime(selectedSource.duration)}
-              <span aria-hidden="true"> · </span>
-              {selectedSource.width}×{selectedSource.height}
-              <span aria-hidden="true"> · </span>
-              {selectedSource.fps ? `${selectedSource.fps.toFixed(2)} fps` : 'fps —'}
-            </span>
-          ) : (
-            <span className="source-heading-meta">Nothing loaded</span>
-          )}
-        </div>
-
-        <span className="toolbar-spacer" />
-
-        {compact ? (
-          <div className="compact-toggles" role="group" aria-label="Panel visibility">
-            <IconButton
-              icon="panel-left"
-              size="sm"
-              label="Project panel"
-              active={layout.leftOpen}
-              onClick={() =>
-                setLayout((current) => ({
-                  ...current,
-                  leftOpen: !current.leftOpen,
-                  rightOpen: false,
-                }))
-              }
-            />
-            <IconButton
-              icon="panel-right"
-              size="sm"
-              label="Inspector"
-              active={layout.rightOpen}
-              onClick={() =>
-                setLayout((current) => ({
-                  ...current,
-                  rightOpen: !current.rightOpen,
-                  leftOpen: false,
-                }))
-              }
-            />
-          </div>
-        ) : null}
-
-        <div className="toolbar-actions">
-        {analysis ? (
-          <div className="engine-pills" aria-label="Active engines">
-            <span className="pill" title={`Speech model: ${analysis.asr_backend || 'none'}`}>
-              Speech <b>{analysis.asr_backend || '—'}</b>
-            </span>
-            <span className="pill" title={`Ranking model: ${analysis.llm_backend || 'none'}`}>
-              Ranking <b>{analysis.llm_backend || '—'}</b>
-            </span>
-            {chat?.available ? (
-              <span className="pill" title={`${chat.messages.toLocaleString()} messages`}>
-                chat <b className="num">{chat.messages.toLocaleString()}</b>
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-
-        {selectedSourceId && chat?.twitch_vod && !chat.available ? (
-          <button type="button" className="btn sm ghost chat-fetch" disabled={labeling} onClick={() => void fetchChat()}>
-            <Icon name="activity" size={13} />
-            Fetch chat
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          className="btn sm primary analyze-button"
-          data-tour="analyze"
-          disabled={!selectedSourceId || labeling}
-          onClick={() => void runAnalyze(Boolean(analysis))}
-        >
-          <Icon name="sparkles" size={13} />
-          {analysis ? 'Re-analyze' : 'Analyze'}
-        </button>
-
-        <IconButton
-          icon="download"
-          size="sm"
-          className="toolbar-aux"
-          label="Export bundle"
-          disabled={!selectedSourceId}
-          onClick={exportBundle}
+      <div className="app-main">
+        <Rail
+          area={layout.area}
+          onChange={goArea}
+          actions={[
+            { id: 'computer', label: 'This computer', icon: 'sliders', onSelect: () => void openSetup() },
+            { id: 'themes', label: 'Theme studio', icon: 'palette', onSelect: () => setThemesOpen(true) },
+            { id: 'shortcuts', label: 'Keyboard shortcuts', icon: 'keyboard', onSelect: () => setShortcutsOpen(true) },
+            { id: 'about', label: 'About Clip Factory', icon: 'info', onSelect: () => setAboutOpen(true) },
+          ]}
         />
-        <IconButton
-          icon="sliders"
-          size="sm"
-          className="toolbar-aux"
-          label="Hardware and models"
-          onClick={() => void openSetup()}
-        />
-        </div>
-      </header>
+
+        <div className="stage">
 
       {job ? (
         <div className="jobbar" data-status={job.status} role="status" aria-live="polite">
@@ -1716,62 +1547,94 @@ export default function App() {
         </div>
       ) : null}
 
-      <div className="workspace" style={{ gridTemplateColumns: columns }}>
-        {showLeft ? (
-          <>
-            <ProjectPanel
-              sources={sources}
-              selectedId={selectedSourceId}
-              learn={learn}
-              analysis={analysis}
-              busy={labeling}
-              compact={false}
-              tab={layout.projectTab}
-              ingestPath={ingestPath}
-              onTab={(tab) => setLayout((current) => ({ ...current, projectTab: tab }))}
-              onSelect={(source) => void selectSource(source.id)}
-              onIngestPath={setIngestPath}
-              onIngest={() => void handleIngest()}
-              onDemo={() => void handleDemo()}
-              onRefreshLearn={refreshLearn}
-              onOpenSetup={() => void openSetup()}
-              onSourceMenu={openSourceMenu}
-              onCollapse={() => setLayout((current) => ({ ...current, leftOpen: false }))}
-              onNotify={pushToast}
-            />
-            <Resizer
-              side="left"
-              value={layout.leftWidth}
-              min={220}
-              max={420}
-              onChange={(value) => setLayout((current) => ({ ...current, leftWidth: value }))}
-              onReset={() => setLayout((current) => ({ ...current, leftWidth: 264 }))}
-              label="Resize project panel"
-              controls="project-panel"
-            />
-          </>
+        {layout.area === 'library' ? (
+          <LibraryArea
+            sources={sources}
+            selectedId={selectedSourceId}
+            analysis={analysis}
+            busy={labeling}
+            ingestPath={ingestPath}
+            onSelect={(source) => void selectSource(source.id)}
+            onIngestPath={setIngestPath}
+            onIngest={() => void handleIngest()}
+            onDemo={() => void handleDemo()}
+            onAnalyze={() => void runAnalyze(Boolean(analysis))}
+            onOpenClips={() => goArea('clips')}
+            onSourceMenu={openSourceMenu}
+            onOpenSetup={() => void openSetup()}
+          />
         ) : null}
 
-        <main className="centre-pane" aria-label="Workspace">
-          <Tabs
-            idPrefix="centre"
-            variant="workspace"
-            ariaLabel="Working area"
-            value={layout.centreTab}
-            onChange={(id) => setLayout((current) => ({ ...current, centreTab: id as CentreTab }))}
-            items={[
-              { id: 'reel', label: 'Clips', icon: 'film', badge: clips.length || undefined },
-              { id: 'monitor', label: 'Monitor', icon: 'monitor', title: 'Source monitor (2)' },
-              { id: 'timeline', label: 'Timeline', icon: 'timeline', title: 'Timeline (3)' },
-            ]}
-          />
+        {layout.area === 'clips' ? (
+          <section className="area area-clips" aria-label="Clips">
+            <header className="area-head clips-head">
+              <span className="area-eyebrow">Clips</span>
+              <SourcePicker
+                sources={sources}
+                selectedId={selectedSourceId}
+                onSelect={(source) => void selectSource(source.id)}
+                onOpenLibrary={() => goArea('library')}
+              />
+              {selectedSource ? (
+                <span className="clips-head-meta num">
+                  {formatTime(selectedSource.duration)}
+                  <span aria-hidden="true"> · </span>
+                  {selectedSource.width}×{selectedSource.height}
+                  <span aria-hidden="true"> · </span>
+                  {selectedSource.fps ? `${selectedSource.fps.toFixed(2)} fps` : 'fps —'}
+                </span>
+              ) : (
+                <span className="clips-head-meta">Nothing loaded</span>
+              )}
+              <div className="area-actions">
+                {selectedSourceId && chat?.twitch_vod && !chat.available ? (
+                  <button type="button" className="btn sm ghost" disabled={labeling} onClick={() => void fetchChat()}>
+                    <Icon name="activity" size={13} />
+                    Fetch chat
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn sm primary analyze-button"
+                  data-tour="analyze"
+                  disabled={!selectedSourceId || labeling}
+                  onClick={() => void runAnalyze(Boolean(analysis))}
+                >
+                  <Icon name="sparkles" size={13} />
+                  {analysis ? 'Re-analyze' : 'Analyze'}
+                </button>
+                <Segmented
+                  size="sm"
+                  ariaLabel="Clip view"
+                  value={layout.centreTab}
+                  onChange={(value) => setLayout((current) => ({ ...current, centreTab: value as CentreTab }))}
+                  options={[
+                    { value: 'reel', label: 'Clips', count: clips.length || undefined },
+                    { value: 'monitor', label: 'Monitor' },
+                    { value: 'timeline', label: 'Timeline' },
+                  ]}
+                />
+                {compact ? (
+                  <IconButton
+                    icon="panel-right"
+                    size="sm"
+                    label="Inspector"
+                    active={layout.rightOpen}
+                    onClick={() => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen }))}
+                  />
+                ) : null}
+              </div>
+            </header>
 
-          <div
-            className="centre-panel"
-            id={`centre-panel-${layout.centreTab}`}
-            role="tabpanel"
-            aria-labelledby={`centre-tab-${layout.centreTab}`}
-          >
+            <div
+              className="clips-body"
+              style={{
+                gridTemplateColumns: showRightDocked
+                  ? `minmax(0, 1fr) 5px ${layout.rightWidth}px`
+                  : 'minmax(0, 1fr)',
+              }}
+            >
+              <main className="area-centre" aria-label="Clip workspace">
             {layout.centreTab === 'reel' ? (
               <Reel
                 clips={visibleClips}
@@ -1801,7 +1664,7 @@ export default function App() {
                 onImport={() => focusField('ingest')}
               />
             ) : layout.centreTab === 'monitor' ? (
-              <div className="centre-split" data-workspace={layout.workspace}>
+              <div className="centre-split">
                 <Monitor
                   ref={monitorRef}
                 clip={selectedClip}
@@ -1826,15 +1689,12 @@ export default function App() {
                 onOpenOutput={() => setLayout((current) => ({ ...current, rightOpen: true, inspectorTab: 'output' }))}
                   onNotify={pushToast}
                 />
-                {layout.workspace !== 'triage' ? (
-                  <div className="timeline-slot">{timelineNode}</div>
-                ) : null}
+                <div className="timeline-slot">{timelineNode}</div>
               </div>
             ) : (
               timelineNode
             )}
-          </div>
-        </main>
+              </main>
 
         {showRightDocked ? (
           <Resizer
@@ -1868,35 +1728,21 @@ export default function App() {
             </InspectorFrame>
           </div>
         ) : null}
-      </div>
+            </div>
+          </section>
+        ) : null}
 
-      {compact && layout.leftOpen ? (
-        <>
-          <button type="button" className="drawer-scrim" aria-label="Close project panel" onClick={() => setLayout((current) => ({ ...current, leftOpen: false }))} />
-          <div className="drawer drawer-left" role="dialog" aria-modal="true" aria-label="Project panel">
-            <ProjectPanel
-              sources={sources}
-              selectedId={selectedSourceId}
-              learn={learn}
-              analysis={analysis}
-              busy={labeling}
-              compact
-              tab={layout.projectTab}
-              ingestPath={ingestPath}
-              onTab={(tab) => setLayout((current) => ({ ...current, projectTab: tab }))}
-              onSelect={(source) => void selectSource(source.id)}
-              onIngestPath={setIngestPath}
-              onIngest={() => void handleIngest()}
-              onDemo={() => void handleDemo()}
-              onRefreshLearn={refreshLearn}
-              onOpenSetup={() => void openSetup()}
-              onSourceMenu={openSourceMenu}
-              onCollapse={() => setLayout((current) => ({ ...current, leftOpen: false }))}
-              onNotify={pushToast}
-            />
-          </div>
-        </>
-      ) : null}
+        {layout.area === 'publish' ? (
+          <PublishArea
+            analysis={analysis}
+            learn={learn}
+            onRefreshLearn={refreshLearn}
+            onNotify={pushToast}
+            onOpenClips={() => goArea('clips')}
+          />
+        ) : null}
+        </div>
+      </div>
 
       {compact && layout.rightOpen ? (
         <>
@@ -1915,12 +1761,13 @@ export default function App() {
         sourceName={selectedSource?.name ?? null}
         duration={duration}
         clipLabel={selectedClip ? `Clip ${selectedClip.rank ? String(selectedClip.rank).padStart(2, '0') : '—'}` : null}
-        leftOpen={layout.leftOpen}
+        asrBackend={analysis?.asr_backend || null}
+        llmBackend={analysis?.llm_backend || null}
+        chatMessages={chat?.available ? chat.messages : null}
+        compact={compact}
         rightOpen={layout.rightOpen}
-        onToggleLeft={() => setLayout((current) => ({ ...current, leftOpen: !current.leftOpen }))}
         onToggleRight={() => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen }))}
         onOpenShortcuts={() => setShortcutsOpen(true)}
-        workspaceLabel={WORKSPACES.find((item) => item.id === layout.workspace)?.label ?? 'Sort clips'}
         themeName={theme.activeTheme.name}
         themeSwatch={theme.activeTheme.seeds.canvas}
         onOpenThemes={() => setThemesOpen(true)}

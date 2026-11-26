@@ -180,7 +180,7 @@ produces poor ones; fix or re-import it before trusting the coach.
 
 **The monitor stays dark in a light theme.** Intentional. Video is judged against a stable neutral stage, not the room's paper colour.
 
-**A panel disappeared.** Press `Ctrl+B` for the project panel or `Ctrl+Shift+B` for the inspector. If the layout is mangled, use **Workspace → Reset workspace**.
+**A panel disappeared.** Press `Ctrl+B` for the inspector; at narrow widths it becomes a drawer and `Esc` closes it. The three areas are always in the rail (`Ctrl+1` / `Ctrl+2` / `Ctrl+3`). If the layout is mangled, use **Edit → Reset layout**.
 
 **Shortcuts stop working while typing.** By design: the global handler defers to inputs, textareas and dialogs. Click out of the field, then use the shortcut.
 

@@ -12,7 +12,7 @@
  * sandboxed, and navigation confined to the sidecar origin.
  */
 
-const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron')
+const { app, BrowserWindow, clipboard, dialog, ipcMain, screen, shell } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const net = require('node:net')
@@ -23,6 +23,44 @@ const isDebug = process.argv.includes('--debug')
 
 let sidecar = null
 let mainWindow = null
+
+// Window placement is a preference like any other: a second launch should open
+// where the last one was left, not at a hard-coded size that is too small on a
+// 4K desk. Bounds are clamped to a real display so unplugging a monitor cannot
+// strand the window off-screen.
+function windowStatePath() {
+  return path.join(app.getPath('userData'), 'window.json')
+}
+
+function readWindowState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(windowStatePath(), 'utf8'))
+    if (!Number.isFinite(raw.width) || !Number.isFinite(raw.height)) return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+function onVisibleDisplay(bounds) {
+  const area = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+  return screen.getAllDisplays().some((display) => {
+    const overlapX = Math.max(0, Math.min(area.x + area.width, display.bounds.x + display.bounds.width) - Math.max(area.x, display.bounds.x))
+    const overlapY = Math.max(0, Math.min(area.y + area.height, display.bounds.y + display.bounds.height) - Math.max(area.y, display.bounds.y))
+    return overlapX >= 160 && overlapY >= 120
+  })
+}
+
+function saveWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const maximized = mainWindow.isMaximized()
+  const bounds = maximized ? mainWindow.getNormalBounds() : mainWindow.getBounds()
+  try {
+    fs.writeFileSync(windowStatePath(), JSON.stringify({ ...bounds, maximized }))
+  } catch {
+    /* a lost preference is not worth interrupting the session */
+  }
+}
 
 // Write-only clipboard bridge. The renderer stays sandboxed and privileged
 // modules stay in the main process; this is only used by "Copy diagnostics".
@@ -146,11 +184,16 @@ async function startSidecar() {
 }
 
 function createWindow(url) {
+  const saved = readWindowState()
+  const placement =
+    saved && onVisibleDisplay(saved)
+      ? { width: Math.max(1200, saved.width), height: Math.max(720, saved.height), x: saved.x, y: saved.y }
+      : { width: 1600, height: 1000 }
+
   mainWindow = new BrowserWindow({
-    width: 1480,
-    height: 940,
-    minWidth: 1080,
-    minHeight: 680,
+    ...placement,
+    minWidth: 1200,
+    minHeight: 720,
     show: false,
     backgroundColor: '#0a0a0b',
     title: 'Clip Factory',
@@ -165,8 +208,24 @@ function createWindow(url) {
     },
   })
 
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.once('ready-to-show', () => {
+    if (saved && saved.maximized) mainWindow.maximize()
+    mainWindow.show()
+  })
+
+  // Debounced so dragging an edge does not write a file per pixel.
+  let saveTimer = null
+  const queueSave = () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(saveWindowState, 400)
+  }
+  mainWindow.on('resize', queueSave)
+  mainWindow.on('move', queueSave)
+  mainWindow.on('maximize', queueSave)
+  mainWindow.on('unmaximize', queueSave)
+  mainWindow.on('close', saveWindowState)
   mainWindow.on('closed', () => {
+    clearTimeout(saveTimer)
     mainWindow = null
   })
 

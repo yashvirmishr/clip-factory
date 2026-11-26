@@ -339,7 +339,11 @@ export function Timeline({
                 {tracks.map(({ clip, track }) => {
                   const verdict = verdicts[clip.id]
                   const left = xFor(clip.start)
-                  const width = Math.max(22, xFor(clip.end) - left)
+                  const width = Math.max(12, xFor(clip.end) - left)
+                  // At whole-source zoom a 16-second clip is a few pixels wide.
+                  // Show only the coloured marker until there is room for words.
+                  const tight = width < 58
+                  const roomy = width >= 120
                   const hook = clip.llm?.hook || clip.text
                   return (
                     <button
@@ -347,6 +351,7 @@ export function Timeline({
                       key={clip.id}
                       className="tblock"
                       style={{ left, width, top: track * (TRACK_H + TRACK_GAP) }}
+                      data-tight={tight ? 'true' : undefined}
                       data-selected={clip.id === selectedId ? 'true' : undefined}
                       data-verdict={verdict}
                       aria-current={clip.id === selectedId ? 'true' : undefined}
@@ -358,9 +363,11 @@ export function Timeline({
                       }}
                       onDoubleClick={onOpenMonitor}
                     >
-                      <span className="tblock-rank num">{clip.rank ? String(clip.rank).padStart(2, '0') : '—'}</span>
-                      <span className="tblock-copy">{hook}</span>
-                      <span className="tblock-duration num">{(clip.end - clip.start).toFixed(1)}s</span>
+                      {tight ? null : (
+                        <span className="tblock-rank num">{clip.rank ? String(clip.rank).padStart(2, '0') : '—'}</span>
+                      )}
+                      {roomy ? <span className="tblock-copy">{hook}</span> : null}
+                      {roomy ? <span className="tblock-duration num">{(clip.end - clip.start).toFixed(1)}s</span> : null}
                     </button>
                   )
                 })}

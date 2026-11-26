@@ -11,7 +11,13 @@ the LLM only re-ranks a short list, and the whole analysis pipeline peaks under
 90 MB of resident memory for a 3-minute source (see [Measured cost](#measured-cost),
 reproduced by `scripts/perf.py`).
 
-![The clip list in the Sort clips workspace](docs/wiki/images/workspace-reel.png)
+![The Clips area: ranked reel with the inspector](docs/wiki/images/workspace-reel.png)
+
+Navigation is three areas in the left rail: **Library** for sources and ingest,
+**Clips** for the reel, monitor, timeline and inspector, and **Publish** for
+uploads, accounts and performance. Each area owns one header, so the source
+picker, the analyze action and the Clips / Monitor / Timeline switch live with
+the reel instead of in a second toolbar across the app.
 
 The workspace ships with six themes and a Studio for making your own. Every panel,
 hairline and monitor tone comes from nine seeds; see [theme authoring](docs/theme-authoring.md)
