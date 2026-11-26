@@ -76,7 +76,8 @@ Stop and resume any time; progress is saved. The tour is also under
 | Editor handoff: OTIO, FCP7 XML, FCP X XML, CMX 3600 EDL, SRT/VTT, bake-to-MP4s, zip bundle | working |
 | Publishing: YouTube/X upload with your own OAuth client, durable queue, retry, cancel | working |
 | Gold-set pick-quality harness + CI regression gate | working |
-| Installer, bundled binaries, LICENSE, real-VOD gold sets | **not yet built** |
+| MIT license | working (see [LICENSE](LICENSE)) |
+| Installer, bundled binaries, real-VOD gold sets | **not yet built** |
 
 The reel now leaves the app: one zip carries an OTIO timeline, an FCP7 XML, an
 EDL, per-clip SRT captions and a manifest, all with timecodes from the same
@@ -585,9 +586,13 @@ imports and the Twitch chat fetch you ask for, all opt-in.
 2. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-3. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
+3. **Packaging** — no installer and no bundled binaries: it runs from a
    checkout with Python installed and nothing else.
 4. **Speaker-aware framing** — face tracking with mouth-activity scoring is in
    place, but it follows the most active face rather than a known speaker. True
    diarization (who is talking) is the next step; `CropPlan` is the interface it
    would plug into.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

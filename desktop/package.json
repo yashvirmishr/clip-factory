@@ -2,6 +2,7 @@
   "name": "clip-factory-desktop",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "description": "Clip Factory desktop shell",
   "main": "main.js",
   "scripts": {
