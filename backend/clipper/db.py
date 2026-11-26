@@ -393,16 +393,24 @@ _MAX_CACHED_ANALYSES = 4
 def get_analysis(source_id: str) -> AnalysisResult | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT payload, created_at FROM analyses WHERE source_id=?", (source_id,)
+            "SELECT created_at FROM analyses WHERE source_id=?", (source_id,)
         ).fetchone()
-    if row is None:
+        if row is None:
+            _ANALYSIS_CACHE.pop(source_id, None)
+            return None
+        stamp = float(row["created_at"])
+        cached = _ANALYSIS_CACHE.get(source_id)
+        if cached is not None and cached[0] == stamp:
+            # Only the stamp is a few bytes; the payload can be megabytes, so it
+            # is fetched below and only when this process has to parse it.
+            return cached[1]
+        payload = conn.execute(
+            "SELECT payload FROM analyses WHERE source_id=?", (source_id,)
+        ).fetchone()
+    if payload is None:
         _ANALYSIS_CACHE.pop(source_id, None)
         return None
-    stamp = float(row["created_at"])
-    cached = _ANALYSIS_CACHE.get(source_id)
-    if cached is not None and cached[0] == stamp:
-        return cached[1]
-    result = AnalysisResult.model_validate_json(row["payload"])
+    result = AnalysisResult.model_validate_json(payload["payload"])
     _apply_clip_edits(result)
     if len(_ANALYSIS_CACHE) >= _MAX_CACHED_ANALYSES and source_id not in _ANALYSIS_CACHE:
         _ANALYSIS_CACHE.clear()

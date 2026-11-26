@@ -587,42 +587,67 @@ def get_analysis(source_id: str, shape: str = "reel") -> dict:
     analysis = db.get_analysis(source_id)
     if analysis is None:
         raise HTTPException(status_code=404, detail="not analyzed yet")
-    payload = analysis.model_dump()
-    if shape != "full":
-        payload["candidates"] = [
-            {key: value for key, value in clip.items() if key not in {"words", "caption_pages"}}
-            for clip in payload.get("candidates", [])
-            if clip.get("rank")
-        ]
+    if shape == "full":
+        return analysis.model_dump()
+    # Dumping all ~900 candidates and then discarding the unranked ones costs
+    # more than the query: build the payload from the ten clips on screen.
+    payload = analysis.model_dump(exclude={"candidates"})
+    payload["candidates"] = [
+        candidate.model_dump(exclude={"words", "caption_pages"})
+        for candidate in analysis.candidates
+        if candidate.rank
+    ]
     return payload
+
+
+# The peaks artifact is 8 MB of compressed min/max pairs and the timeline asks
+# for the same reduction on every source select. Keep the reduced response, keyed
+# on the artifact's mtime so a re-analysis invalidates it for free.
+_PEAK_CACHE: dict[tuple[str, int], tuple[float, dict]] = {}
+_PEAK_CACHE_LIMIT = 8
 
 
 @app.get("/api/sources/{source_id}/peaks")
 def get_peaks(source_id: str, buckets: int = 1400) -> dict:
+    path = service.artifacts_for(source_id) / "peaks.npz"
     try:
-        data = np.load(str(service.artifacts_for(source_id) / "peaks.npz"))
+        stamp = path.stat().st_mtime
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="peaks not built yet") from exc
+    buckets = max(50, min(4000, buckets))
+    cache_key = (source_id, buckets)
+    cached = _PEAK_CACHE.get(cache_key)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    try:
+        data = np.load(str(path))
     except (FileNotFoundError, OSError) as exc:
         raise HTTPException(status_code=404, detail="peaks not built yet") from exc
     if "min64" not in data:
         raise HTTPException(status_code=500, detail="peaks artifact malformed")
     lows, highs = data["min64"], data["max64"]
     total_samples = int(data["count"][0]) if "count" in data else int(lows.size * 64)
-    buckets = max(50, min(4000, buckets))
     n = int(lows.size)
     if n == 0:
-        return {"duration": 0.0, "low": [], "high": [], "buckets": 0}
-    edges = (np.arange(buckets + 1) * n // buckets).astype(np.int64)
-    edges = np.clip(edges, 0, n)
-    starts = edges[:-1]
-    valid = starts < n
-    low = np.minimum.reduceat(lows, starts[valid])
-    high = np.maximum.reduceat(highs, starts[valid])
-    return {
-        "duration": round(total_samples / SETTINGS.audio.sample_rate, 3),
-        "low": [round(float(v), 4) for v in low],
-        "high": [round(float(v), 4) for v in high],
-        "buckets": int(valid.sum()),
-    }
+        payload: dict = {"duration": 0.0, "low": [], "high": [], "buckets": 0}
+    else:
+        edges = (np.arange(buckets + 1) * n // buckets).astype(np.int64)
+        edges = np.clip(edges, 0, n)
+        starts = edges[:-1]
+        valid = starts < n
+        low = np.minimum.reduceat(lows, starts[valid])
+        high = np.maximum.reduceat(highs, starts[valid])
+        payload = {
+            "duration": round(total_samples / SETTINGS.audio.sample_rate, 3),
+            "low": [round(float(v), 4) for v in low],
+            "high": [round(float(v), 4) for v in high],
+            "buckets": int(valid.sum()),
+        }
+    if len(_PEAK_CACHE) >= _PEAK_CACHE_LIMIT:
+        _PEAK_CACHE.clear()
+    _PEAK_CACHE[cache_key] = (stamp, payload)
+    return payload
 
 
 @app.get("/api/media/{source_id}")
