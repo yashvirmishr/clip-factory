@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { useId, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Icon, type IconName } from './Icon'
 
 interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
@@ -67,6 +67,117 @@ export function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  )
+}
+
+/**
+ * The one way a labelled control is laid out in an inspector.
+ *
+ * These primitives exist because the same markup - label, value, control - was
+ * being retyped per panel, and each copy drifted a few pixels. `Field` is a
+ * div, not a label: some fields wrap buttons, and nesting a button inside a
+ * label misreports what the label belongs to. The two controls below therefore
+ * name their label explicitly with `aria-labelledby`.
+ */
+export function Field({
+  label,
+  value,
+  labelId,
+  children,
+}: {
+  label: string
+  value?: ReactNode
+  labelId?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="field-stack">
+      <span className="field-label" id={labelId}>
+        {label}
+        {value !== undefined && value !== null ? <b className="num">{value}</b> : null}
+      </span>
+      {children}
+    </div>
+  )
+}
+
+export function RangeField({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  suffix = '',
+  onChange,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  suffix?: string
+  onChange: (value: number) => void
+}) {
+  const labelId = useId()
+  return (
+    <Field label={label} value={`${value}${suffix}`} labelId={labelId}>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-labelledby={labelId}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </Field>
+  )
+}
+
+export function TextField({
+  label,
+  value,
+  valueLabel,
+  placeholder,
+  maxLength,
+  rows,
+  type = 'text',
+  onChange,
+}: {
+  label: string
+  value: string
+  valueLabel?: ReactNode
+  placeholder?: string
+  maxLength?: number
+  rows?: number
+  type?: 'text' | 'password'
+  onChange: (value: string) => void
+}) {
+  const labelId = useId()
+  return (
+    <Field label={label} value={valueLabel} labelId={labelId}>
+      {rows ? (
+        <textarea
+          rows={rows}
+          value={value}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          aria-labelledby={labelId}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          autoComplete="off"
+          spellCheck={false}
+          aria-labelledby={labelId}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </Field>
   )
 }
 

@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import __version__
 from . import edl, otio, srt, xmeml
+from . import fcpxml, vtt
 from .spec import ClipSpec
 
 READ_ME = """Clip Factory handoff
@@ -97,11 +98,13 @@ def files(
     out: dict[str, bytes] = {
         "reel.otio": otio.dumps(specs, title).encode("utf-8"),
         "reel.xml": xmeml.build(specs, title).encode("utf-8"),
+        "reel.fcpxml": fcpxml.build(specs, title).encode("utf-8"),
         "reel.edl": edl.build(specs).encode("utf-8"),
         "README.txt": READ_ME.encode("utf-8"),
     }
     for spec in specs:
         out[f"captions/{spec.id}.srt"] = srt.build(spec).encode("utf-8")
+        out[f"captions/{spec.id}.vtt"] = vtt.build(spec).encode("utf-8")
 
     render_names: list[str] = []
     for path in renders or []:

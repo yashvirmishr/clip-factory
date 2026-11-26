@@ -15,9 +15,10 @@ from typing import Iterable
 
 import numpy as np
 
-DIM = 512
+from .lang import script_of as _script_of
+from .lang import tokenize as _unicode_tokenize
 
-_WORD_RE = re.compile(r"[a-z0-9']+")
+DIM = 512
 
 HOOK_WORDS: frozenset[str] = frozenset(
     """
@@ -48,7 +49,8 @@ TERMINAL_PUNCT = ".!?…"
 
 
 def tokenize(text: str) -> list[str]:
-    return _WORD_RE.findall(text.lower())
+    """Delegates to the Unicode tokenizer so non-Latin text is not invisible."""
+    return _unicode_tokenize(text)
 
 
 def _bucket(feature: str) -> tuple[int, float]:
@@ -102,7 +104,14 @@ def caps_ratio(text: str) -> float:
 
 
 def starts_with_deictic(text: str) -> str | None:
-    """Return the offending opener, or None if the sentence stands alone."""
+    """Return the offending opener, or None if the sentence stands alone.
+
+    The opener lists are English. Silently returning "fine" for other scripts is
+    the honest answer: a Japanese sentence is not failing a check, it is simply
+    not being checked by this one.
+    """
+    if _script_of(text) not in {"latin", "none"}:
+        return None
     tokens = tokenize(text)
     if not tokens:
         return None

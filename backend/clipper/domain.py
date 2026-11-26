@@ -60,6 +60,9 @@ class LLMJudgement(BaseModel):
 
 class GateResult(BaseModel):
     id: str
+    # Plain-language name shown in the UI. The id stays the key for gating and
+    # for the scorecard; a missing label falls back to the id in the renderer.
+    label: str = ""
     passed: bool
     severity: GateSeverity = "block"
     detail: str = ""
@@ -93,6 +96,9 @@ class ClipCandidate(BaseModel):
     # A manual caption pass, source-absolute. None means "derive from words";
     # an empty list is not a valid edit and is treated as absent.
     caption_pages: list[dict] | None = None
+    # Per-clip caption style overrides (font, size, colours, margins). Empty means
+    # the chosen preset exactly as shipped.
+    caption_style: dict = Field(default_factory=dict)
 
     @property
     def duration(self) -> float:
@@ -125,6 +131,9 @@ class WindowFeatures(BaseModel):
     speech_coverage: float = 0.0
     start_in_stream: float = 0.0
     end_in_stream: float = 0.0
+    # Which script the window is written in, so the UI can explain why the
+    # English lexicons scored zero rather than leaving it a mystery.
+    script: str = ""
 
 
 class AnalysisResult(BaseModel):
@@ -132,8 +141,12 @@ class AnalysisResult(BaseModel):
     candidates: list[ClipCandidate]
     asr_backend: str
     llm_backend: str
+    policy_version: str = ""
     duration_s: float = 0.0
     reel_quality: float = 0.0
+    # The language this analysis was asked for (`auto` when unset). Recorded so
+    # the UI can say which language a reel is in instead of guessing.
+    language: str = ""
     warnings: list[str] = Field(default_factory=list)
 
 

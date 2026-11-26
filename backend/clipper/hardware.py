@@ -175,7 +175,7 @@ MODELS: list[dict] = [
         "label": "Whisper small.en (q5)",
         "size_gb": 0.49,
         "min_tier": "A",
-        "speed": "~2-3x realtime with Vulkan",
+        "speed": "~2-3x realtime on CPU (this build has no GPU speech backend)",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
         "filename": "ggml-small.en.bin",
     },
@@ -195,7 +195,7 @@ MODELS: list[dict] = [
         "label": "Whisper large-v3-turbo (q5)",
         "size_gb": 1.1,
         "min_tier": "C",
-        "speed": "fast on 8 GB+ VRAM",
+        "speed": "largest English model; slower than realtime on CPU",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         "filename": "ggml-large-v3-turbo-q5_0.bin",
     },
@@ -280,6 +280,9 @@ def advise(profile: dict) -> dict:
         "llm_polish": largest("llm"),
         "model_budget_gb": round(max(1.0, budget), 1),
         "notes": [
+            # The shipped whisper binaries have no ggml-vulkan/CUDA backend, so
+            # the UI must not imply that a GPU makes transcription faster.
+            "Speech recognition (whisper.cpp) is CPU-bound in this build.",
             "Run one heavy stage at a time - analysis and rendering never overlap.",
             "Exclude your media folder from Windows Defender real-time scanning.",
             "On shared-memory GPUs set the UMA frame buffer to ~4 GB in BIOS.",

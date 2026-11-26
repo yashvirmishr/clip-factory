@@ -8,6 +8,8 @@ export interface Word {
 
 export interface GateResult {
   id: string
+  /** Plain-language name from the backend; falls back to the id if absent. */
+  label?: string
   passed: boolean
   severity: 'block' | 'warn'
   detail: string
@@ -54,7 +56,8 @@ export interface Clip {
   start: number
   end: number
   text: string
-  words: Word[]
+  /** Absent on `shape=reel` payloads; fetch the clip for word timings. */
+  words?: Word[]
   signals: Record<string, number>
   features: WindowFeatures | null
   fused: number
@@ -108,13 +111,54 @@ export interface Analysis {
 export interface JobState {
   id: string
   kind: string
-  status: 'queued' | 'running' | 'done' | 'error'
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   stage: string
   pct: number
   detail: string
   error: string
   elapsed: number
+  cancelling?: boolean
+  /** Timings and counts of a finished analysis; the reel is fetched separately. */
+  analysis_ready?: boolean
+  source_id?: string
+  clip_count?: number
+  reel_quality?: number
+  timings?: Record<string, number>
   analysis?: Analysis
+}
+
+export interface LanguageEntry {
+  code: string
+  name: string
+  native: string
+  script: string
+  rtl: boolean
+}
+
+export interface CaptionTrack {
+  lang: string
+  label: string
+  native?: string
+  auto: boolean
+  ext: string
+}
+
+export interface SourcePreview {
+  url: string
+  kind: string
+  title: string
+  channel: string
+  duration: number
+  thumbnail: string
+  live: boolean
+  tracks: CaptionTrack[]
+  error?: string
+}
+
+export interface TracksPayload {
+  preview: SourcePreview | null
+  stored: Array<{ language: string; path: string; cues: number; bytes: number }>
+  asr: { model: string; english_only: boolean; language: string; available: boolean }
 }
 
 export interface Peaks {
@@ -169,6 +213,43 @@ export interface Captions {
   clip_id: string
   pages: CaptionPage[]
   stats: { pages: number; mean_cps: number; warnings: number }
+  edited?: boolean
+}
+
+export interface CaptionStyle {
+  key: string
+  /** The preset this clip saves, when it has one. */
+  preset?: string
+  label: string
+  font: string
+  size: number
+  primary: string
+  secondary: string
+  outline: string
+  back: string
+  bold: number
+  outline_width: number
+  shadow: number
+  alignment: number
+  margin_h: number
+  margin_v: number
+  uppercase: boolean
+  karaoke: string
+  overrides: Record<string, string | number | boolean>
+  /** Present on an apply-to-all response. */
+  applied?: number
+}
+
+export interface FontCatalog {
+  families: string[]
+  curated: Record<string, string[]>
+}
+
+export interface FramingStatus {
+  available: boolean
+  engine: string
+  model: string
+  hint: string
 }
 
 export interface HardwareModel {
@@ -225,6 +306,24 @@ export interface ModelStatus {
   tier_ok: boolean
 }
 
+export interface Diagnostics {
+  version: string
+  pid: number
+  uptime_s: number
+  python: string
+  data_dir: string
+  data_writable: boolean
+  log: string
+  db: { path: string; bytes: number }
+  media: { path: string; bytes: number }
+  disk: { free_gb?: number; total_gb?: number }
+  busy: boolean
+  jobs: JobState[]
+  ffmpeg: string
+  llama_url: string
+  whisper_cli: string
+}
+
 export interface ModelsPayload {
   tier: string
   models_dir: string
@@ -235,4 +334,36 @@ export interface ModelsPayload {
   recommended: { asr: string | null; llm: string | null }
   whisper_cli: string
   asr_ready: boolean
+}
+export interface RunnerProbe {
+  url: string
+  reachable: boolean
+  models: string[]
+  error: string
+}
+
+export interface RunnerSettings extends RunnerProbe {
+  source: 'env' | 'config' | 'none'
+  editable: boolean
+}
+
+export interface Readiness {
+  machine: {
+    os: string
+    memory_gb: number
+    gpu: string
+    vram_gb: number
+    tier: string
+    note: string
+  }
+  video: { ffmpeg: boolean; disk_free_gb: number }
+  speech: {
+    ready: boolean
+    model: string
+    whisper_cli: string
+    bin_dir: string
+    recommended: { id: string; label: string; size_gb: number; speed: string } | null
+  }
+  scoring: { built_in: boolean; runner: RunnerSettings }
+  models: { dir: string; available_gb: number }
 }

@@ -107,7 +107,7 @@ def test_non_latin_ratio_flags_hallucination():
     assert non_latin_ratio("hello there friend") == 0.0
 
 
-def _gates_for(text: str, *, duration: float = 30.0, start: float = 120.0):
+def _gates_for(text: str, *, duration: float = 30.0, start: float = 120.0, expected_script: str = ""):
     cfg = GateConfig()
     words = [Word(text=w, start=start + i * 0.3, end=start + i * 0.3 + 0.25, prob=0.95) for i, w in enumerate(text.split())]
     base = build_windows(make_utterances(10), WindowConfig())[0]
@@ -122,7 +122,13 @@ def _gates_for(text: str, *, duration: float = 30.0, start: float = 120.0):
         start_in_stream=start,
         end_in_stream=start + duration,
     )
-    return {g.id: g for g in evaluate_gates(window, features, words, cfg, stream_duration=3600.0)}
+    return {
+        g.id: g
+        for g in evaluate_gates(
+            window, features, words, cfg, stream_duration=3600.0,
+            expected_script=expected_script,
+        )
+    }
 
 
 def test_sponsor_read_is_blocked():
@@ -132,6 +138,19 @@ def test_sponsor_read_is_blocked():
 
 def test_hallucinated_script_is_blocked():
     gates = _gates_for("これはテストです これはテストです これはテストです")
+    assert gates["not_hallucinated"].passed is False
+
+
+def test_a_japanese_window_is_not_a_hallucination_when_japanese_was_asked_for():
+    gates = _gates_for("これはテストです これはテストです", expected_script="kana")
+    assert gates["not_hallucinated"].passed
+    # Without an English lexicon the hook gate may only flag, never block.
+    assert gates["hook_in_first_seconds"].severity == "warn"
+
+
+def test_a_mixed_script_window_only_warns():
+    gates = _gates_for("this is ここれはテストです", expected_script="latin")
+    assert gates["not_hallucinated"].severity == "warn"
     assert gates["not_hallucinated"].passed is False
 
 

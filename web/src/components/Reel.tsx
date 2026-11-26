@@ -1,3 +1,5 @@
+import { memo } from 'react'
+import { api } from '../api'
 import type { Analysis, Clip, Verdict } from '../types'
 import { Icon } from '../workspace/Icon'
 import { IconButton, Segmented, Spinner } from '../workspace/ui'
@@ -12,6 +14,7 @@ export const REJECT_REASONS = ['boring', 'confusing', 'cut off', 'spoiler', 'off
 interface ReelProps {
   clips: Clip[]
   counts: Record<ClipFilter, number>
+  sourceId: string | null
   mediaSrc: string
   selectedId: string | null
   verdicts: Record<string, Verdict>
@@ -35,9 +38,10 @@ interface ReelProps {
   onImport: () => void
 }
 
-export function Reel({
+export const Reel = memo(function Reel({
   clips,
   counts,
+  sourceId,
   mediaSrc,
   selectedId,
   verdicts,
@@ -64,7 +68,7 @@ export function Reel({
   const isFiltered = filter !== 'all' || query.trim().length > 0
 
   return (
-    <div className="reel">
+    <div className="reel" data-tour="clips">
       <div className="tab-toolbar reel-toolbar">
         <Segmented
           size="sm"
@@ -165,7 +169,7 @@ export function Reel({
           <div className="work-empty">
             <Spinner label="Analyzing source" />
             <h2>Reading the tape.</h2>
-            <p>Audio, transcript and signals are being prepared. The reel will fill in automatically.</p>
+            <p>Audio, words and scores are being prepared. The clip list fills in by itself.</p>
           </div>
         ) : !analysis ? (
           <div className="work-empty">
@@ -189,11 +193,11 @@ export function Reel({
             <span className="work-empty-mark" aria-hidden="true">
               <Icon name="filter" size={22} />
             </span>
-            <h2>{isFiltered ? 'No clips match this view.' : 'No clip survived the gates.'}</h2>
+            <h2>{isFiltered ? 'No clips match this view.' : 'No clip passed the checks.'}</h2>
             <p>
               {isFiltered
                 ? 'Clear the filter and search to see the full reel again.'
-                : 'Every candidate was blocked. Review the warnings above, then re-analyze with a stronger model.'}
+                : 'Every clip was blocked. Review the warnings above, then re-analyze with a stronger model.'}
             </p>
             <div className="work-empty-actions">
               {isFiltered ? (
@@ -222,14 +226,19 @@ export function Reel({
                 <ClipCard
                   key={clip.id}
                   clip={clip}
-                  mediaSrc={mediaSrc}
+                  thumbSrc={
+                    sourceId
+                      ? api.thumbUrl(sourceId, clip.start + Math.min(2.5, (clip.end - clip.start) / 3))
+                      : mediaSrc
+                  }
+                  fallbackSrc={mediaSrc}
                   selected={clip.id === selectedId}
                   verdict={verdicts[clip.id]}
                   view={view}
-                  onSelect={() => onSelect(clip.id)}
-                  onOpen={() => onOpen(clip)}
-                  onVerdict={(verdict) => onVerdict(clip.id, verdict)}
-                  onMenu={(position) => onMenu(clip, position)}
+                  onSelect={onSelect}
+                  onOpen={onOpen}
+                  onVerdict={onVerdict}
+                  onMenu={onMenu}
                 />
               ))}
             </div>
@@ -238,4 +247,4 @@ export function Reel({
       </div>
     </div>
   )
-}
+})

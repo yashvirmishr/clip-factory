@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, formatBytes } from '../api'
+import { api, formatBytes, watchJob } from '../api'
 import type { ModelsPayload, ModelStatus } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Spinner } from '../workspace/ui'
@@ -29,7 +29,7 @@ export function ModelList() {
   const [payload, setPayload] = useState<ModelsPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<Record<string, RowState>>({})
-  const timers = useRef<number[]>([])
+  const timers = useRef<Array<() => void>>([])
 
   const load = useCallback(async () => {
     try {
@@ -43,7 +43,7 @@ export function ModelList() {
   useEffect(() => {
     void load()
     return () => {
-      timers.current.forEach((id) => window.clearInterval(id))
+      timers.current.forEach((stop) => stop())
       timers.current = []
     }
   }, [load])
@@ -52,28 +52,24 @@ export function ModelList() {
     setRows((current) => ({ ...current, [id]: { ...(current[id] ?? { pct: 0, detail: '' }), ...next } }))
 
   const watch = (modelId: string, jobId: string) => {
-    const timer = window.setInterval(async () => {
-      try {
-        const job = await api.job(jobId)
+    const stop = watchJob(
+      jobId,
+      (job) => {
         patch(modelId, { pct: job.pct, detail: job.detail || job.stage })
         if (job.status === 'done') {
-          window.clearInterval(timer)
           setRows((current) => {
             const next = { ...current }
             delete next[modelId]
             return next
           })
           void load()
-        } else if (job.status === 'error') {
-          window.clearInterval(timer)
+        } else if (job.status === 'error' || job.status === 'cancelled') {
           patch(modelId, { error: job.error || 'download failed', pct: 0 })
         }
-      } catch (failure) {
-        window.clearInterval(timer)
-        patch(modelId, { error: (failure as Error).message, pct: 0 })
-      }
-    }, 600)
-    timers.current.push(timer)
+      },
+      600,
+    )
+    timers.current.push(stop)
   }
 
   const download = async (model: ModelStatus) => {
@@ -129,11 +125,16 @@ export function ModelList() {
           whisper.cpp <code>{payload.whisper_cli}</code>
         </p>
       ) : (
-        <p className="warn-line">
-          <Icon name="alert" size={13} />
-          whisper.cpp binary not found. Put <code>whisper-cli.exe</code> in <code>{payload.models_dir}\..\bin</code> or
-          on PATH — until then transcription uses the deterministic stub.
-        </p>
+        <div className="model-warning">
+          <Icon name="alert" size={14} />
+          <div className="model-warning-copy">
+            <p>
+              whisper.cpp binary not found. Add <code>whisper-cli.exe</code> to the app&apos;s{' '}
+              <code>bin</code> folder or your <code>PATH</code>; transcription uses the deterministic
+              stub until then.
+            </p>
+          </div>
+        </div>
       )}
 
       {models.map((model) => {

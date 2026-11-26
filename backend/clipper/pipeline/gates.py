@@ -12,19 +12,37 @@ import re
 
 from ..config import GateConfig
 from ..domain import GateResult, WindowFeatures, Word
+from ..lang import ends_sentence, script_of, script_switch_ratio
 from ..textvec import (
     HOOK_WORDS,
     PROFANITY,
-    SECOND_PERSON,
     starts_with_deictic,
 )
 from .windows import Window
+
+# What each gate is called where a person can see it. The id stays the stable
+# key (database, tests, scorecard lookups); only the label is user-facing.
+GATE_LABELS = {
+    "asr_confidence": "Transcript confidence",
+    "speech_coverage": "Enough speech in the clip",
+    "not_hallucinated": "Transcript looks real",
+    "not_sponsor": "No sponsor read",
+    "past_warmup": "Past the intro",
+    "min_words": "Enough words to work with",
+    "not_blocked": "No blocked words",
+    "duration_range": "Length is right",
+    "hook_in_first_seconds": "Hook in the first seconds",
+    "stands_alone": "Works on its own",
+    "ends_sentence": "Ends on a sentence",
+}
 
 _CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 
 HOOK_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("question", r"\?"),
+    # Full-width and Arabic question marks count as questions everywhere.
+    ("question", r"[?？؟]"),
+    ("exclaim", r"[!！]"),
     ("number", r"\b\d+\b"),
     ("second_person", r"\b(you|your|you're|youre)\b"),
     ("why_how_what", r"\b(why|how|what)\b"),
@@ -45,6 +63,10 @@ def hook_cue(text: str) -> str | None:
     for label, pattern in HOOK_PATTERNS:
         if re.search(pattern, lowered):
             return label
+    if script_of(text) != "latin":
+        # The word lists below only exist in English; asserting "no hook" from
+        # them would penalise every other language.
+        return None
     if any(tok.strip(".,!?") in HOOK_WORDS for tok in lowered.split()):
         return "hook_word"
     if any(tok.strip(".,!?").upper() == tok.strip(".,!?") and len(tok) > 3 for tok in text.split()):
@@ -67,11 +89,20 @@ def evaluate_gates(
     words: list[Word],
     cfg: GateConfig,
     stream_duration: float,
+    expected_script: str = "",
 ) -> list[GateResult]:
     results: list[GateResult] = []
 
     def add(gid: str, passed: bool, detail: str = "", severity: str = "block") -> None:
-        results.append(GateResult(id=gid, passed=passed, severity=severity, detail=detail))
+        results.append(
+            GateResult(
+                id=gid,
+                label=GATE_LABELS.get(gid, gid.replace("_", " ")),
+                passed=passed,
+                severity=severity,
+                detail=detail,
+            )
+        )
 
     # ---- G1: input gates -------------------------------------------------
     confident = (
@@ -90,12 +121,17 @@ def evaluate_gates(
         f"speech {features.speech_coverage:.0%}",
     )
 
-    hallucination = non_latin_ratio(window.text)
-    add(
-        "not_hallucinated",
-        hallucination <= cfg.max_non_latin_ratio,
-        f"non-latin {hallucination:.0%}",
-    )
+    # A window written almost entirely in another script is the classic whisper
+    # hallucination ("thanks for watching" over silence). A window that merely
+    # mixes scripts is normal in most of the world, so it only warns.
+    expected = expected_script or "latin"
+    switch = script_switch_ratio(window.text, expected)
+    if switch > 0.9:
+        add("not_hallucinated", False, f"{switch:.0%} in another script")
+    elif switch > cfg.max_script_switch_ratio:
+        add("not_hallucinated", False, f"{switch:.0%} in another script", severity="warn")
+    else:
+        add("not_hallucinated", True, "")
 
     sponsor = next(
         (kw for kw in cfg.sponsor_keywords if kw in window.text.lower()), ""
@@ -118,11 +154,19 @@ def evaluate_gates(
     )
 
     opening_cue = opening_hook(words, window.start, cfg.hook_window_s)
-    add("hook_in_first_seconds", opening_cue is not None, opening_cue or "no hook cue")
+    latin = (expected_script or "latin") == "latin"
+    add(
+        "hook_in_first_seconds",
+        opening_cue is not None,
+        opening_cue or "no hook cue",
+        # Without an English lexicon there is nothing to assert, only to flag.
+        severity="block" if latin else "warn",
+    )
 
     deictic = starts_with_deictic(window.text)
     add("stands_alone", deictic is None, f"opens with '{deictic}'" if deictic else "")
 
-    add("ends_sentence", window.last_terminal, "ends mid-sentence" if not window.last_terminal else "")
+    finished = ends_sentence(window.text) if window.text else window.last_terminal
+    add("ends_sentence", finished, "ends mid-sentence" if not finished else "")
 
     return results

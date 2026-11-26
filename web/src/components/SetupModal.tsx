@@ -2,6 +2,7 @@ import type { Hardware } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Modal } from '../workspace/Modal'
 import { Spinner } from '../workspace/ui'
+import { RunnerSetting } from '../tour/RunnerSetting'
 import { ModelList } from './ModelList'
 
 interface Props {
@@ -14,15 +15,16 @@ interface Props {
 export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
   return (
     <Modal
-      title="Hardware & models"
+      title="This computer"
       eyebrow="Setup"
       onClose={onClose}
       width={820}
+      className="setup-dialog"
       footer={
         <>
           <p className="dialog-note">
-            Downloads are resumable and checksummed. Until a model is installed, analysis uses the
-            deterministic stub scorer — labelled everywhere it surfaces.
+            Downloads resume if they stop. Until a speech model is installed, clips are cut from a
+            stand-in transcript, and the app says so wherever it matters.
           </p>
           <button type="button" className="btn ghost" onClick={onRefresh}>
             <Icon name="refresh" size={14} />
@@ -45,9 +47,11 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
       ) : (
         <div className="setup">
           <section className="tier">
-            <div className="tier-stamp">{hardware.advice.tier}</div>
+            <div className="tier-stamp" aria-hidden="true">
+              <Icon name="check" size={18} />
+            </div>
             <div className="tier-copy">
-              <span className="label">Recommended tier</span>
+              <span className="label">Fit for this machine</span>
               <h3>{hardware.advice.tier_label}</h3>
               <p>{hardware.advice.blurb}</p>
             </div>
@@ -62,7 +66,7 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
             <header className="section-head">
               <div>
                 <span className="label">This machine</span>
-                <h3>Probe results</h3>
+                <h3>What it has</h3>
               </div>
             </header>
             <dl className="spec-grid">
@@ -121,6 +125,16 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
               <span className="field-hint">The largest that fits is recommended</span>
             </header>
             <ModelList />
+          </section>
+
+          <section className="setup-section">
+            <header className="section-head">
+              <div>
+                <span className="label">Scoring</span>
+                <h3>Optional model runner</h3>
+              </div>
+            </header>
+            <RunnerSetting />
           </section>
 
           {hardware.advice.notes.length ? (

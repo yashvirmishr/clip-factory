@@ -245,8 +245,8 @@ export function ThemeAtelier({
 
   return (
     <Modal
-      title="Theme atelier"
-      eyebrow="Appearance / Marketplace"
+      title="Theme studio"
+      eyebrow="Appearance"
       onClose={onClose}
       width={1180}
       className="theme-modal"

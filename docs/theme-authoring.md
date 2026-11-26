@@ -5,12 +5,12 @@ and a few typography choices; the app derives every surface, hairline, focus rin
 monitor tone and timeline colour from them. There is no build step and no CSS to
 write.
 
-Open **Appearance → Theme atelier** from the palette swatch in the status bar.
+Open the atelier from the theme swatch in the status bar or **View → Theme atelier**.
 
 ## Make a theme in the app
 
-1. Open the theme atelier and choose **Studio**.
-2. Start from **New**, **Remix** a built-in theme, or **Edit** one of your own.
+1. Open the theme atelier. In **Marketplace**, choose **Make a theme** or **Remix** a built-in; use **Edit** on one of your own.
+2. **Studio** opens on the draft.
 3. Change any seed. The preview updates immediately and the draft autosaves in this
    browser.
 4. Use the readability checks to keep body text at WCAG AA (4.5:1) or better.
@@ -54,8 +54,8 @@ theme restores the default room if it was active.
 }
 ```
 
-`format` and `version` are an envelope for sharing. The importer also accepts a
-bare theme object. `id` is optional on import; Clip Factory assigns a local
+`format` and `version` are an envelope for sharing; `version` is currently
+informational and not validated. The importer also accepts a bare theme object. `id` is optional on import; Clip Factory assigns a local
 `custom-…` id so a shared file cannot overwrite a theme you already have.
 
 ## Seeds

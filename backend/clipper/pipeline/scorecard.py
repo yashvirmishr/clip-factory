@@ -43,7 +43,7 @@ def build_scorecard(
         result = gate_ids.get(item_id)
         return ScoreItem(
             id=item_id,
-            label=item_id.replace("_", " "),
+            label=(result.label if result else "") or item_id.replace("_", " "),
             passed=bool(result.passed) if result else True,
             detail=result.detail if result else "",
         )

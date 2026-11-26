@@ -201,12 +201,16 @@ class WhisperCppASR:
         vad_model_path: str = "",
         language: str = "auto",
         threads: int = 0,
+        translate: bool = False,
     ) -> None:
         self.cli = cli
         self.model_path = model_path
         self.vad_model_path = vad_model_path
         self.language = language
         self.threads = threads
+        # whisper.cpp can only translate *into* English (-tr). It is not a
+        # general translator, and the UI must not pretend otherwise.
+        self.translate = translate
 
     def available(self) -> bool:
         if not self.cli:
@@ -236,6 +240,8 @@ class WhisperCppASR:
             ]
         if self.language and self.language != "auto":
             cmd += ["-l", self.language]
+        if self.translate:
+            cmd += ["-tr"]
         if self.threads > 0:
             cmd += ["-t", str(self.threads)]
         return cmd
@@ -254,6 +260,9 @@ class WhisperCppASR:
         if not json_path.exists():
             raise ASRError("whisper-cli produced no JSON output")
         payload = json.loads(json_path.read_text("utf-8"))
+        detected = str((payload.get("result") or {}).get("language") or "").strip()
+        if not detected and self.language and self.language != "auto":
+            detected = self.language
 
         words: list[Word] = []
         for seg in payload.get("transcription", []):
@@ -265,7 +274,7 @@ class WhisperCppASR:
             for w in seg_words:
                 w.refined = True
             words.extend(seg_words)
-        return ASRResult(words_to_utterances(words), self.name)
+        return ASRResult(words_to_utterances(words), self.name, detected or "en")
 
 
 _STUB_LINES = [
@@ -327,9 +336,12 @@ def resolve_backend(
     subtitle_path: str | Path | None = None,
     threads: int = 0,
     language: str = "auto",
+    translate: bool = False,
 ) -> object:
     """Prefer real ASR, fall back to subtitle import, never crash."""
-    whisper = WhisperCppASR(whisper_cli, whisper_model, vad_model, language, threads)
+    whisper = WhisperCppASR(
+        whisper_cli, whisper_model, vad_model, language, threads, translate
+    )
     if whisper.available():
         return whisper
     if subtitle_path and Path(subtitle_path).exists():

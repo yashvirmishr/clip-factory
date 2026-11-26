@@ -41,6 +41,16 @@ def test_health(client):
     assert "data_dir" in payload
 
 
+def test_diagnostics_snapshot(client):
+    payload = client.get("/api/diagnostics").json()
+    assert payload["version"]
+    assert payload["data_dir"]
+    assert payload["db"]["bytes"] >= 0
+    assert payload["data_writable"] is True
+    assert isinstance(payload["jobs"], list)
+    assert payload["uptime_s"] >= 0
+
+
 def test_hardware_probe_returns_a_tier_and_models(client):
     payload = client.get("/api/hardware").json()
     assert payload["advice"]["tier"] in {"A", "B", "C", "D", "E"}
@@ -72,6 +82,26 @@ def test_analysis_is_served_and_has_ranked_clips(client, analyzed):
     assert all(g["id"] for c in ranked for g in c["gates"])
 
 
+def test_reel_shape_drops_word_timings_and_stays_small(client, analyzed):
+    source, _ = analyzed
+    reel = client.get(f"/api/sources/{source.id}/analysis").json()
+    assert reel["candidates"]
+    assert all("words" not in clip for clip in reel["candidates"])
+    assert all(clip["rank"] for clip in reel["candidates"])
+    assert len(json.dumps(reel).encode("utf-8")) < 64_000
+
+    full = client.get(f"/api/sources/{source.id}/analysis?shape=full").json()
+    assert any(c["words"] for c in full["candidates"] if c["rank"])
+
+
+def test_source_list_reports_counts_without_reading_payloads(client, analyzed):
+    source, _ = analyzed
+    row = next(r for r in client.get("/api/sources").json() if r["id"] == source.id)
+    assert row["analyzed"] is True
+    assert row["clip_count"] >= 1
+    assert row["reel_quality"] > 0
+
+
 def test_caption_edit_round_trips_and_can_be_reset(client, analyzed):
     source, _ = analyzed
     analysis = client.get(f"/api/sources/{source.id}/analysis").json()
@@ -98,6 +128,53 @@ def test_caption_edit_round_trips_and_can_be_reset(client, analyzed):
     assert reset.status_code == 200
     assert reset.json()["edited"] is False
     assert reset.json()["pages"][0]["text"] == base["pages"][0]["text"]
+
+
+def test_clip_subtitles_download_as_sidecars(client, analyzed):
+    source, _ = analyzed
+    analysis = client.get(f"/api/sources/{source.id}/analysis").json()
+    clip = next(c for c in analysis["candidates"] if c["rank"])
+    base = f"/api/sources/{source.id}/clips/{clip['id']}/subtitles"
+
+    vtt = client.get(f"{base}?format=vtt")
+    assert vtt.status_code == 200
+    assert vtt.text.startswith("WEBVTT")
+    assert "-->" in vtt.text
+
+    srt = client.get(f"{base}?format=srt")
+    assert srt.status_code == 200
+    assert "-->" in srt.text and "WEBVTT" not in srt.text
+
+    ass = client.get(f"{base}?format=ass")
+    assert ass.status_code == 200
+    assert "[V4+ Styles]" in ass.text
+
+    assert client.get(f"{base}?format=docx").status_code == 400
+
+
+def test_reel_subtitles_are_a_zip(client, analyzed):
+    source, _ = analyzed
+    response = client.get(f"/api/sources/{source.id}/subtitles?format=vtt")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/zip")
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert names and all(name.endswith(".vtt") for name in names)
+        assert archive.read(names[0]).decode("utf-8").startswith("WEBVTT")
+
+
+def test_fonts_endpoint_offers_families_and_script_hints(client):
+    payload = client.get("/api/fonts").json()
+    assert payload["families"]
+    assert "latin" in payload["curated"]
+    assert payload["curated"]["thai"]
+
+
+def test_render_presets_are_a_full_catalogue(client):
+    presets = client.get("/api/render/presets").json()
+    assert presets
+    for preset in presets:
+        assert {"key", "label", "font", "size", "margin_v", "karaoke"} <= set(preset)
 
 
 def test_caption_edit_rejects_an_empty_page_list(client, analyzed):
@@ -264,6 +341,23 @@ def test_export_serves_each_editor_format(client, analyzed):
         assert len(response.content) > 100
 
 
+def test_approved_only_export_filters_and_refuses_an_empty_selection(client, analyzed, monkeypatch):
+    source, _ = analyzed
+    url = f"/api/sources/{source.id}/export?format=bundle&approved_only=true"
+    analysis = client.get(f"/api/sources/{source.id}/analysis").json()
+    clip = next(c for c in analysis["candidates"] if c["rank"])
+
+    monkeypatch.setattr("clipper.api._approved_ids", lambda: set())
+    assert client.get(url).status_code == 400
+
+    monkeypatch.setattr("clipper.api._approved_ids", lambda: {clip["id"]})
+    exported = client.get(url)
+    assert exported.status_code == 200
+    with zipfile.ZipFile(BytesIO(exported.content)) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["clip_count"] == 1
+
+
 def test_export_bundle_has_the_edit_decision_list_and_captions(client, analyzed):
     source, result = analyzed
     payload = client.get(f"/api/sources/{source.id}/export?format=bundle").content
@@ -387,3 +481,193 @@ def test_ingest_accepts_a_url_without_touching_the_network(client, monkeypatch):
     assert source.duration > 0
     # The URL is kept: chat replay is fetched later, long after ingest.
     assert source.origin_url == "https://example.com/vod/1"
+
+
+def test_caption_style_round_trips_into_the_ass_download(client, analyzed):
+    """A saved per-clip style must reach the burner, not just the studio."""
+    source, result = analyzed
+    clip = next(candidate for candidate in result.candidates if candidate.rank)
+    base = f"/api/sources/{source.id}/clips/{clip.id}"
+
+    response = client.put(
+        f"{base}/captions/style",
+        json={"preset": "hormozi", "overrides": {"font": "Impact", "size": 77, "song": "no"}},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["font"] == "Impact"
+    assert body["size"] == 77
+    # Unknown keys are dropped on the way in, so a stale client cannot poison it.
+    assert body["overrides"] == {"font": "Impact", "size": 77}
+
+    loaded = client.get(f"{base}/captions/style?preset=hormozi").json()
+    assert loaded["size"] == 77
+
+    ass = client.get(f"{base}/subtitles?format=ass").text
+    assert "Clip,Impact,77," in ass
+
+    cleared = client.delete(f"{base}/captions/style?preset=hormozi")
+    assert cleared.status_code == 200
+    assert cleared.json()["overrides"] == {}
+    assert cleared.json()["font"] != "Impact"
+    assert "Impact" not in client.get(f"{base}/subtitles?format=ass").text
+
+
+def test_each_clip_keeps_its_own_caption_preset(client, analyzed):
+    """The preset is part of the clip, not a global preference."""
+    source, result = analyzed
+    clips = [candidate for candidate in result.candidates if candidate.rank][:2]
+    assert len(clips) == 2
+    first, second = (f"/api/sources/{source.id}/clips/{clip.id}" for clip in clips)
+
+    assert client.put(f"{first}/captions/style", json={"preset": "box", "overrides": {}}).status_code == 200
+    assert (
+        client.put(
+            f"{second}/captions/style", json={"preset": "neon", "overrides": {"size": 90}}
+        ).status_code
+        == 200
+    )
+
+    one = client.get(f"{first}/captions/style").json()
+    two = client.get(f"{second}/captions/style").json()
+    assert one["preset"] == "box"
+    assert two["preset"] == "neon"
+    assert two["size"] == 90
+    # The download follows the clip, not the caller's default.
+    assert "Arial Black" in client.get(f"{first}/subtitles?format=ass").text
+    assert "Segoe UI Semibold" in client.get(f"{second}/subtitles?format=ass").text
+
+    applied = client.put(
+        f"{first}/captions/style",
+        json={"preset": "minimal", "overrides": {"size": 70}, "apply_to_all": True},
+    )
+    assert applied.status_code == 200
+    assert applied.json()["applied"] >= 2
+    assert client.get(f"{second}/captions/style").json()["preset"] == "minimal"
+
+
+def test_bake_endpoint_runs_a_job_and_serves_the_folder(client, analyzed, monkeypatch):
+    import json as json_module
+    import time as time_module
+
+    from clipper.editors import bake as bake_module
+
+    source, _result = analyzed
+    folder = bake_module.bake_dir(source)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "01 clip.mp4").write_bytes(b"0" * 2048)
+    (folder / "manifest.json").write_text(
+        json_module.dumps({"clip_count": 1, "baked": 1, "failed": 0, "clips": []}), "utf-8"
+    )
+
+    def fake_bake(source_, analysis_, **kwargs):
+        return {
+            "folder": str(folder),
+            "clip_count": 1,
+            "baked": 1,
+            "failed": 0,
+            "clips": [{"id": "x", "name": "01 clip", "file": "01 clip.mp4"}],
+        }
+
+    monkeypatch.setattr(bake_module, "bake_reel", fake_bake)
+    started = client.post(f"/api/sources/{source.id}/export/bake", json={})
+    assert started.status_code == 200
+    job_id = started.json()["id"]
+    payload = started.json()
+    for _ in range(80):
+        payload = client.get(f"/api/jobs/{job_id}").json()
+        if payload["status"] in {"done", "error"}:
+            break
+        time_module.sleep(0.05)
+    assert payload["status"] == "done"
+    assert payload["analysis"]["baked"] == 1
+
+    manifest = client.get(f"/api/sources/{source.id}/export/bake").json()
+    assert manifest["exists"] is True
+    served = client.get(f"/api/sources/{source.id}/export/bake/file/01 clip.mp4")
+    assert served.status_code == 200
+    assert served.content == b"0" * 2048
+    assert client.get(f"/api/sources/{source.id}/export/bake/file/nope.mp4").status_code == 404
+
+
+def test_job_events_streams_the_result_and_then_closes(client):
+    """The stream must end on the terminal frame; a client cannot be left hanging."""
+    import time as time_module
+
+    from clipper.api import JOBS
+
+    job = JOBS.submit("render", lambda progress: {"ok": True, "filename": "x.mp4"})
+    settled = False
+    for _ in range(200):
+        if client.get(f"/api/jobs/{job.id}").json()["status"] == "done":
+            settled = True
+            break
+        time_module.sleep(0.01)
+    assert settled, "the trivial job did not finish; the stream test would hang"
+
+    frames: list[str] = []
+    with client.stream("GET", f"/api/jobs/{job.id}/events") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        for line in response.iter_lines():
+            if line.startswith("data: "):
+                frames.append(line[6:])
+    assert frames, "a finished job still has to send its result"
+    final = json.loads(frames[-1])
+    assert final["status"] == "done"
+    assert final["analysis"] == {"ok": True, "filename": "x.mp4"}
+
+    assert client.get("/api/jobs/nope/events").status_code == 404
+
+
+def test_job_events_and_the_poll_route_agree(client):
+    """One payload builder: the two routes must not drift apart."""
+    import time as time_module
+
+    from clipper.api import JOBS
+
+    job = JOBS.submit("render", lambda progress: {"style": "hormozi"})
+    for _ in range(200):
+        polled = client.get(f"/api/jobs/{job.id}").json()
+        if polled["status"] == "done":
+            break
+        time_module.sleep(0.01)
+    streamed: dict = {}
+    with client.stream("GET", f"/api/jobs/{job.id}/events") as response:
+        for line in response.iter_lines():
+            if line.startswith("data: "):
+                streamed = json.loads(line[6:])
+    assert streamed["analysis"] == polled["analysis"]
+    assert streamed["status"] == polled["status"]
+
+
+def test_reveal_refuses_anything_outside_the_exports_tree(client, tmp_path):
+    outside = client.post("/api/reveal", json={"path": str(tmp_path)})
+    assert outside.status_code == 403
+    assert "bake" in outside.json()["detail"]
+
+    from clipper.editors.bake import bakes_root
+
+    missing = bakes_root() / "not-baked-yet"
+    assert client.post("/api/reveal", json={"path": str(missing)}).status_code == 404
+
+
+def test_reveal_opens_a_bake_folder(client, monkeypatch):
+    from clipper.editors import bake as bake_module
+
+    folder = bake_module.bakes_root() / "reveal-src"
+    folder.mkdir(parents=True, exist_ok=True)
+    opened: list[str] = []
+    monkeypatch.setattr("os.startfile", lambda path: opened.append(path), raising=False)
+    response = client.post("/api/reveal", json={"path": str(folder)})
+    assert response.status_code == 200
+    if opened:  # POSIX uses xdg-open/open instead of startfile
+        assert opened[0] == str(folder.resolve())
+
+
+def test_caption_style_rejects_an_unknown_clip(client, analyzed):
+    source, _result = analyzed
+    response = client.put(
+        f"/api/sources/{source.id}/clips/nope/captions/style", json={"overrides": {"size": 90}}
+    )
+    assert response.status_code == 404

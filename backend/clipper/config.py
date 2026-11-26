@@ -89,7 +89,10 @@ class GateConfig:
     dedupe_cosine: float = 0.92
     hook_window_s: float = 3.0
     stream_warmup_s: float = 90.0
+    # Deprecated: kept so an older config.json still loads. The hallucination
+    # gate now measures script switching against the analysis language.
     max_non_latin_ratio: float = 0.15
+    max_script_switch_ratio: float = 0.5
     sponsor_keywords: tuple[str, ...] = (
         "sponsor",
         "sponsored by",
@@ -115,6 +118,9 @@ class CaptionConfig:
     cps_limit: float = 19.0
     gap_split_s: float = 0.45
     min_page_s: float = 0.35
+    # Used when a clip has not saved its own preset. A per-clip style wins, so
+    # changing this never restyles a clip someone already shaped.
+    default_preset: str = "hormozi"
 
 
 @dataclass
@@ -146,6 +152,16 @@ class FramingConfig:
     motion_weight: float = 0.75
     skin_weight: float = 0.25
     min_shot_s: float = 0.4
+    # Face-aware framing is opt-in: empty means the motion tracker, which needs
+    # no optional dependency.
+    face_model: str = ""
+    detect_fps: float = 4.0
+    detect_width: int = 320
+    face_score: float = 0.6
+    zoom: str = "none"  # none | auto
+    ema_alpha: float = 0.3
+    deadband_px: float = 8.0
+    max_knots: int = 24
 
 
 @dataclass

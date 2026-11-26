@@ -81,11 +81,17 @@ export const Monitor = forwardRef<MonitorHandle, MonitorProps>(function Monitor(
     setTime(target)
     if (report) onTime(target)
     if (!video) return
-    if (video.readyState >= 1) {
-      video.currentTime = target
-    } else {
+    if (video.readyState < 1) {
       pendingSeek.current = target
+      return
     }
+    // A drag can ask for more seeks than the decoder can serve. Keep only the
+    // latest target while one is in flight; `onSeeked` applies it.
+    if (video.seeking) {
+      pendingSeek.current = target
+      return
+    }
+    video.currentTime = target
   }
 
   // A new clip always resets the monitor to its in point.
@@ -284,10 +290,16 @@ export const Monitor = forwardRef<MonitorHandle, MonitorProps>(function Monitor(
             }}
             onSeeked={() => {
               const video = videoRef.current
-              if (video) {
-                setTime(video.currentTime)
-                onTime(video.currentTime)
+              if (!video) return
+              const queued = pendingSeek.current
+              if (queued !== null && Math.abs(queued - video.currentTime) > 0.01) {
+                pendingSeek.current = null
+                video.currentTime = queued
+                return
               }
+              pendingSeek.current = null
+              setTime(video.currentTime)
+              onTime(video.currentTime)
             }}
             onLoadedMetadata={() => {
               const video = videoRef.current

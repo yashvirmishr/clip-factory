@@ -65,11 +65,140 @@ PRESETS: dict[str, CaptionStyle] = {
         primary="&H001A5CFF", secondary="&H00F5F5F5", outline_width=3.5,
         uppercase=False, alignment=2, margin_v=140,
     ),
+    "bold_center": CaptionStyle(
+        key="bold_center", label="Bold centre", font="Arial Black", size=96,
+        primary="&H00FFFFFF", secondary="&H00D8D8D8", outline_width=8.0,
+        alignment=5, margin_v=0,
+    ),
+    "serif_editorial": CaptionStyle(
+        key="serif_editorial", label="Serif", font="Georgia", size=70,
+        primary="&H00F5F5F5", secondary="&H00B8B8B8", outline_width=2.5,
+        shadow=1.0, uppercase=False, margin_v=220,
+    ),
+    "outline_only": CaptionStyle(
+        key="outline_only", label="Outline only", font="Arial Black", size=100,
+        primary="&H00FFFFFF", secondary="&H00FFFFFF", outline_width=10.0,
+        shadow=0.0, back="&H00000000",
+    ),
+    "neon": CaptionStyle(
+        key="neon", label="Neon", font="Segoe UI Semibold", size=90,
+        primary="&H00FFFF00", secondary="&H00F2F2F2", outline="&H00301008",
+        outline_width=6.0, shadow=0.0,
+    ),
+    "ticker": CaptionStyle(
+        key="ticker", label="Ticker", font="Arial", size=54,
+        primary="&H00FFFFFF", secondary="&H00E0E0E0", outline_width=3.0,
+        shadow=0.0, uppercase=False, margin_v=90, margin_h=60,
+    ),
+    "podcast": CaptionStyle(
+        key="podcast", label="Podcast", font="Segoe UI", size=66,
+        primary="&H00FFFFFF", secondary="&H00D0D0D0", outline_width=0.0,
+        shadow=0.0, back="&H99000000", uppercase=False, margin_v=180,
+    ),
+    "comic": CaptionStyle(
+        key="comic", label="Comic", font="Comic Sans MS", size=84,
+        primary="&H0000D1FF", secondary="&H00FFFFFF", outline_width=7.0,
+        shadow=2.0, uppercase=True, margin_v=250,
+    ),
 }
 
 
 def get_preset(key: str) -> CaptionStyle:
     return PRESETS.get(key, PRESETS["hormozi"])
+
+
+def resolve_style(raw: dict | None, fallback_preset: str = "hormozi") -> CaptionStyle:
+    """The style a clip actually renders with.
+
+    A clip can save a preset and overrides together (``{"preset": ..., "overrides":
+    {...}}``). Older analyses stored only the flat override dict, so both shapes
+    are accepted: the preset is the saved one when present, otherwise the caller's
+    default. This is the single path used by the renderer, the studio and the ASS
+    download, which is what keeps their pictures identical.
+    """
+    payload = raw or {}
+    preset = str(payload.get("preset") or fallback_preset)
+    overrides = payload.get("overrides")
+    if not isinstance(overrides, dict):
+        overrides = payload
+    return apply_overrides(get_preset(preset), overrides)
+
+
+# Per-clip overrides a person can change in the subtitle studio. Anything else in
+# the payload is dropped: a stored edit must never be able to write a field the
+# renderer does not understand, or the render disagrees with the preview.
+OVERRIDE_FIELDS: dict[str, type] = {
+    "font": str,
+    "size": int,
+    "primary": str,
+    "secondary": str,
+    "outline": str,
+    "back": str,
+    "bold": int,
+    "outline_width": float,
+    "shadow": float,
+    "alignment": int,
+    "margin_v": int,
+    "margin_h": int,
+    "uppercase": bool,
+    "karaoke": str,
+}
+
+_KARAOKE = {"k", "kf", "none"}
+
+
+def clean_overrides(raw: dict | None) -> dict:
+    """Coerce and clamp a stored/requested override payload.
+
+    Clamping happens once, here, so the render, the preview and the exported ASS
+    all see the same numbers rather than each rounding differently.
+    """
+    if not raw:
+        return {}
+    cleaned: dict = {}
+    for key, kind in OVERRIDE_FIELDS.items():
+        if key not in raw or raw[key] is None:
+            continue
+        value = raw[key]
+        try:
+            value = kind(value)
+        except (TypeError, ValueError):
+            continue
+        if key == "size":
+            value = max(24, min(200, value))
+        elif key == "outline_width":
+            value = max(0.0, min(20.0, float(value)))
+        elif key == "shadow":
+            value = max(0.0, min(20.0, float(value)))
+        elif key == "margin_v":
+            value = max(0, min(RES_Y, value))
+        elif key == "margin_h":
+            value = max(0, min(RES_X // 2, value))
+        elif key == "alignment":
+            value = value if 1 <= value <= 9 else 2
+        elif key == "karaoke":
+            value = value if value in _KARAOKE else "k"
+        elif key == "bold":
+            value = -1 if value else 0
+        elif key in {"font", "primary", "secondary", "outline", "back"}:
+            text = str(value).strip()
+            if not text:
+                continue
+            value = text
+        cleaned[key] = value
+    return cleaned
+
+
+def apply_overrides(style: CaptionStyle, overrides: dict | None) -> CaptionStyle:
+    """A preset with one clip's changes folded in."""
+    cleaned = clean_overrides(overrides)
+    if not cleaned:
+        return style
+    values = {key: getattr(style, key) for key in OVERRIDE_FIELDS}
+    values.update(cleaned)
+    return CaptionStyle(
+        key=style.key, label=style.label, **values
+    )
 
 
 def escape_text(text: str) -> str:
@@ -184,4 +313,32 @@ def style_summary(style: CaptionStyle) -> dict:
         "size": style.size,
         "karaoke": style.karaoke,
         "uppercase": style.uppercase,
+    }
+
+
+def style_payload(style: CaptionStyle, overrides: dict | None = None) -> dict:
+    """Everything the studio needs to draw an accurate preview."""
+    raw = overrides or {}
+    # Accept both the stored shape ({"preset", "overrides"}) and a flat dict.
+    if isinstance(raw.get("overrides"), dict):
+        raw = raw["overrides"]
+    return {
+        "key": style.key,
+        "preset": style.key,
+        "label": style.label,
+        "font": style.font,
+        "size": style.size,
+        "primary": style.primary,
+        "secondary": style.secondary,
+        "outline": style.outline,
+        "back": style.back,
+        "bold": style.bold,
+        "outline_width": style.outline_width,
+        "shadow": style.shadow,
+        "alignment": style.alignment,
+        "margin_h": style.margin_h,
+        "margin_v": style.margin_v,
+        "uppercase": style.uppercase,
+        "karaoke": style.karaoke,
+        "overrides": clean_overrides(raw),
     }

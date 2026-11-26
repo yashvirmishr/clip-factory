@@ -7,6 +7,10 @@ __pycache__/
 # Test scratch dirs that can land at the repo root
 clipper-test-*/
 pytest-of-*/
+.pytest-data*/
+.testdata/
+.acl-recovery/
+data-empty/
 
 # Node
 node_modules/

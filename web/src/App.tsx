@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, formatTime, formatTimecode, pollUntilDone } from './api'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { api, formatTime, formatTimecode, pollUntilDone, watchJob } from './api'
 import type {
   Analysis,
   ChatStatus,
@@ -8,39 +8,58 @@ import type {
   JobState,
   LearnState,
   Peaks,
+  Readiness,
   SourceInfo,
+  SourcePreview,
   SourceRow,
+  LanguageEntry,
   Verdict,
 } from './types'
 import { Inspector, type InspectorTab } from './components/Inspector'
 import { Monitor, type MonitorHandle, type OverlayMode } from './components/Monitor'
 import { ProjectPanel } from './components/ProjectPanel'
 import { Reel, REJECT_REASONS, type ClipFilter, type ClipSort, type ClipView } from './components/Reel'
-import { SetupModal } from './components/SetupModal'
 import { Timeline } from './components/Timeline'
-import { AboutDialog } from './workspace/AboutDialog'
+import { UrlSheet, type UrlChoice } from './components/UrlSheet'
 import { CommandPalette } from './workspace/CommandPalette'
 import { ContextMenu } from './workspace/ContextMenu'
 import { Icon, type IconName } from './workspace/Icon'
 import { InspectorFrame, type FloatRect } from './workspace/InspectorFrame'
 import { MenuBar } from './workspace/MenuBar'
+import { setPlayhead } from './workspace/playhead'
 import { Resizer } from './workspace/Resizer'
-import { ShortcutsDialog } from './workspace/ShortcutsDialog'
 import { StatusBar } from './workspace/StatusBar'
 import { Tabs } from './workspace/Tabs'
 import type { AppCommand, MenuDefinition } from './workspace/types'
 import { useMediaQuery } from './workspace/useMediaQuery'
 import { usePersistentState } from './workspace/usePersistentState'
 import { IconButton } from './workspace/ui'
-import { ThemeAtelier } from './theme/ThemeAtelier'
 import { useTheme } from './theme/useTheme'
+import { TourOverlay } from './tour/TourOverlay'
+import { useTour } from './tour/useTour'
+import type { TourActionId } from './tour/types'
+
+// Secondary surfaces load on first use: the triage view should not pay for the
+// theme studio, setup and about dialogs before anyone opens them.
+const ThemeAtelier = lazy(() =>
+  import('./theme/ThemeAtelier').then((module) => ({ default: module.ThemeAtelier })),
+)
+const SetupModal = lazy(() =>
+  import('./components/SetupModal').then((module) => ({ default: module.SetupModal })),
+)
+const AboutDialog = lazy(() =>
+  import('./workspace/AboutDialog').then((module) => ({ default: module.AboutDialog })),
+)
+const ShortcutsDialog = lazy(() =>
+  import('./workspace/ShortcutsDialog').then((module) => ({ default: module.ShortcutsDialog })),
+)
 
 const PHASES = [
-  { id: 'audio', label: 'Audio', stages: ['audio'] },
-  { id: 'transcribe', label: 'Transcribe', stages: ['transcribe', 'align'] },
-  { id: 'signals', label: 'Signals', stages: ['windows', 'signals', 'gates'] },
-  { id: 'score', label: 'Score', stages: ['score'] },
-  { id: 'select', label: 'Select', stages: ['select', 'done'] },
+  { id: 'audio', label: 'Listening', stages: ['audio'] },
+  { id: 'transcribe', label: 'Reading speech', stages: ['transcribe', 'align'] },
+  { id: 'signals', label: 'Finding moments', stages: ['windows', 'signals', 'gates'] },
+  { id: 'score', label: 'Scoring', stages: ['score'] },
+  { id: 'select', label: 'Picking clips', stages: ['select', 'done'] },
 ]
 
 const CHAT_PHASES = [{ id: 'chat', label: 'Chat', stages: ['chat'] }]
@@ -116,7 +135,7 @@ const DEFAULT_LAYOUT: LayoutState = {
 }
 
 const WORKSPACES: Array<{ id: WorkspacePreset; label: string; icon: IconName; hint: string }> = [
-  { id: 'triage', label: 'Triage', icon: 'list', hint: 'Reel, inspector and project bin' },
+  { id: 'triage', label: 'Sort clips', icon: 'list', hint: 'Clip list, inspector and project bin' },
   { id: 'editing', label: 'Editing', icon: 'scissors', hint: 'Monitor, timeline and inspector' },
   { id: 'review', label: 'Review', icon: 'monitor', hint: 'Full-frame review, panels stowed' },
 ]
@@ -234,10 +253,17 @@ function phaseStates(job: JobState | null, phases: typeof PHASES = PHASES): Reco
 export default function App() {
   const [layout, setLayout] = usePersistentState<LayoutState>('clip-factory.workspace.v2', DEFAULT_LAYOUT)
   const compact = useMediaQuery('(max-width: 1240px)')
+  const panelStateBeforeCompact = useRef<{ leftOpen: boolean; rightOpen: boolean } | null>(null)
   const theme = useTheme()
 
   const [sources, setSources] = useState<SourceRow[]>([])
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  // Reopen the source from the last session; the effect below falls back to the
+  // first analyzed source when that file is gone. (Clips re-seed from its rank list.)
+  const [selectedSourceId, setSelectedSourceId] = usePersistentState<string | null>(
+    'clip-factory.source.v1',
+    null,
+  )
+  const hydratedSourceRef = useRef<string | null>(null)
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [learn, setLearn] = useState<LearnState | null>(null)
   const [peaks, setPeaks] = useState<Peaks | null>(null)
@@ -246,12 +272,18 @@ export default function App() {
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>({})
   const [rejecting, setRejecting] = useState<string | null>(null)
-  const [playhead, setPlayhead] = useState(0)
+  // The playhead lives in its own store so playback does not re-render the app.
   const [seekRequest, setSeekRequest] = useState<{ seconds: number; nonce: number } | null>(null)
   const [captions, setCaptions] = useState<import('./types').Captions | null>(null)
   const [captionsLoading, setCaptionsLoading] = useState(false)
+  // Bumped when the same clip's pages change server-side (a trim re-cuts words).
+  const [captionsNonce, setCaptionsNonce] = useState(0)
   const [renderRequest, setRenderRequest] = useState<{ clipId: string; nonce: number } | null>(null)
   const [setupOpen, setSetupOpen] = useState(false)
+  // First-run tour: progress is persisted, readiness is fetched on demand.
+  const tour = useTour()
+  const [readiness, setReadiness] = useState<Readiness | null>(null)
+  const [readinessError, setReadinessError] = useState<string | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -261,8 +293,13 @@ export default function App() {
   const [hardwareError, setHardwareError] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [ingestPath, setIngestPath] = useState('')
+  const [urlPreview, setUrlPreview] = useState<SourcePreview | null>(null)
+  const [urlLanguages, setUrlLanguages] = useState<LanguageEntry[]>([])
+  const [urlBusy, setUrlBusy] = useState(false)
   const [ingesting, setIngesting] = useState(false)
   const [version, setVersion] = useState('0.1')
+  const [engine, setEngine] = useState<'checking' | 'online' | 'offline'>('checking')
+  const [engineError, setEngineError] = useState('')
 
   const toastId = useRef(0)
   const jobSourceRef = useRef<string | null>(null)
@@ -274,6 +311,24 @@ export default function App() {
     window.setTimeout(() => {
       setToasts((current) => current.filter((toast) => toast.id !== id))
     }, 4600)
+  }, [])
+
+  const probeEngine = useCallback(async () => {
+    try {
+      const payload = await api.health()
+      setVersion(payload.version)
+      setEngine('online')
+      setEngineError('')
+    } catch (failure) {
+      const raw = (failure as Error).message || ''
+      // The Vite proxy and the packaged app report a missing sidecar differently.
+      setEngineError(
+        /failed to fetch|networkerror|500|econnrefused/i.test(raw)
+          ? 'No response from 127.0.0.1:8756'
+          : raw,
+      )
+      setEngine('offline')
+    }
   }, [])
 
   const refreshSources = useCallback(async () => {
@@ -294,6 +349,7 @@ export default function App() {
 
   const selectSource = useCallback(
     async (sourceId: string, preserveTab = false) => {
+      hydratedSourceRef.current = sourceId
       setSelectedSourceId(sourceId)
       setAnalysis(null)
       setPeaks(null)
@@ -333,18 +389,30 @@ export default function App() {
   )
 
   useEffect(() => {
-    void refreshSources()
-    void refreshLearn()
-    api
-      .health()
-      .then((payload) => setVersion(payload.version))
-      .catch(() => undefined)
-  }, [refreshSources, refreshLearn])
+    void probeEngine()
+  }, [probeEngine])
+
+  // A cold Electron launch can race the sidecar. Keep probing until it answers.
+  useEffect(() => {
+    if (engine !== 'offline') return
+    const timer = window.setTimeout(() => void probeEngine(), 2500)
+    return () => window.clearTimeout(timer)
+  }, [engine, probeEngine])
 
   useEffect(() => {
-    if (selectedSourceId || sources.length === 0) return
-    const first = sources.find((source) => source.analyzed) ?? sources[0]
-    void selectSource(first.id, true)
+    if (engine !== 'online') return
+    void refreshSources()
+    void refreshLearn()
+  }, [engine, refreshSources, refreshLearn])
+
+  useEffect(() => {
+    if (sources.length === 0) return
+    const target =
+      sources.find((source) => source.id === selectedSourceId) ??
+      sources.find((source) => source.analyzed) ??
+      sources[0]
+    if (hydratedSourceRef.current === target.id) return
+    void selectSource(target.id, true)
   }, [sources, selectedSourceId, selectSource])
 
   // Clamp persisted widths once, so a layout saved on a larger display still
@@ -382,10 +450,24 @@ export default function App() {
   }, [setLayout])
 
   useEffect(() => {
-    if (!compact) return
-    setLayout((current) =>
-      current.leftOpen || current.rightOpen ? { ...current, leftOpen: false, rightOpen: false } : current,
-    )
+    if (compact) {
+      setLayout((current) => {
+        if (!panelStateBeforeCompact.current) {
+          panelStateBeforeCompact.current = {
+            leftOpen: current.leftOpen,
+            rightOpen: current.rightOpen,
+          }
+        }
+        return current.leftOpen || current.rightOpen
+          ? { ...current, leftOpen: false, rightOpen: false }
+          : current
+      })
+      return
+    }
+    const saved = panelStateBeforeCompact.current
+    if (!saved) return
+    panelStateBeforeCompact.current = null
+    setLayout((current) => ({ ...current, ...saved }))
   }, [compact, setLayout])
 
   const selectClip = useCallback(
@@ -415,8 +497,18 @@ export default function App() {
   const selectedSource = sources.find((source) => source.id === selectedSourceId) ?? null
   const fps = selectedSource?.fps || 30
   const duration = selectedSource?.duration ?? 0
-  const mediaSrc = selectedSourceId ? api.mediaUrl(selectedSourceId) : null
+  // Browsing uses the 720p copy when one exists; the API falls back to the master.
+  const mediaSrc = selectedSourceId ? api.mediaUrl(selectedSourceId, true) : null
   const busy = Boolean(job && (job.status === 'running' || job.status === 'queued'))
+
+  const cancelJob = async () => {
+    if (!job) return
+    try {
+      setJob(await api.cancelJob(job.id))
+    } catch (failure) {
+      pushToast('error', (failure as Error).message)
+    }
+  }
   const labeling = busy || ingesting
   const shownPhases = job?.kind === 'chat' ? CHAT_PHASES : job?.kind === 'download' ? [{ id: 'download', label: 'Download', stages: ['download', 'ingest', 'fetch'] }] : PHASES
   const phases = phaseStates(job, shownPhases)
@@ -444,61 +536,64 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [selectedSourceId, selectedClip?.id])
+  }, [selectedSourceId, selectedClip?.id, captionsNonce])
 
-  // Job polling
+  // Job progress arrives as a stream; see watchJob for the polling fallback.
   useEffect(() => {
     if (!job || (job.status !== 'running' && job.status !== 'queued')) return
-    const timer = window.setInterval(async () => {
-      try {
-        const next = await api.job(job.id)
-        setJob(next)
-        if (next.status === 'done') {
-          if (next.analysis && next.kind !== 'chat' && next.kind !== 'download') {
-            const jobSource = jobSourceRef.current
-            if (jobSource === selectedSourceId) {
-              setAnalysis(next.analysis)
-              const first = next.analysis.candidates.find((clip) => clip.rank)
-              setSelectedClipId(first?.id ?? null)
-              if (first) {
-                setPlayhead(first.start)
-                setSeekRequest({ seconds: first.start, nonce: Date.now() })
-              }
-              if (jobSource) {
-                try {
-                  setPeaks(await api.peaks(jobSource))
-                } catch {
-                  /* peaks are optional */
+    const handle = (next: JobState) => {
+      setJob(next)
+      if (next.status === 'done') {
+        if (next.kind === 'analyze' && next.analysis_ready) {
+          // The job payload only carries counts now; fetch the reel shape once.
+          const jobSource = next.source_id || jobSourceRef.current
+          if (jobSource) {
+            void (async () => {
+              try {
+                const payload = await api.analysis(jobSource)
+                if (jobSource === selectedSourceId) {
+                  setAnalysis(payload)
+                  const first = payload.candidates.find((clip) => clip.rank)
+                  setSelectedClipId(first?.id ?? null)
+                  if (first) {
+                    setPlayhead(first.start)
+                    setSeekRequest({ seconds: first.start, nonce: Date.now() })
+                  }
+                  try {
+                    setPeaks(await api.peaks(jobSource))
+                  } catch {
+                    /* peaks are optional */
+                  }
                 }
+                pushToast('ok', firstCopy(payload))
+              } catch (error) {
+                pushToast('error', `Could not load the analysis: ${(error as Error).message}`)
               }
-            }
-            void refreshSources()
-            pushToast('ok', firstCopy(next.analysis))
+              void refreshSources()
+            })()
           }
-          if (next.kind === 'chat' && selectedSourceId) {
-            try {
-              setChat(await api.chatStatus(selectedSourceId))
-            } catch {
+        }
+        if (next.kind === 'chat' && selectedSourceId) {
+          void api
+            .chatStatus(selectedSourceId)
+            .then((status) => setChat(status))
+            .catch(() => {
               /* the fetch succeeded; a status refresh is best-effort */
-            }
-            pushToast('ok', 'Chat replay saved — re-analyze to score audience reaction')
-          }
-          if (next.kind === 'download') {
-            pushToast('ok', 'Download finished.')
-          }
+            })
+          pushToast('ok', 'Chat replay saved — re-analyze to score audience reaction')
         }
-        if (next.status === 'error') {
-          pushToast('error', next.error || 'Analysis failed')
+        if (next.kind === 'download') {
+          pushToast('ok', 'Download finished.')
         }
-      } catch (error) {
-        pushToast('error', `Lost contact with the job: ${(error as Error).message}`)
-        setJob((current) =>
-          current ? { ...current, status: 'error', error: (error as Error).message } : current,
-        )
       }
-    }, 650)
-    return () => window.clearInterval(timer)
-  }, [job?.id, job?.status, selectedSourceId, refreshSources, pushToast])
+      if (next.status === 'error') {
+        pushToast('error', next.error || 'Analysis failed')
+      }
+    }
+    // Keyed on the job, not its status: a queued job that turns running must
+    // keep its one stream instead of reconnecting on every state change.
+    return watchJob(job.id, handle, 1000)
+  }, [job?.id, selectedSourceId, refreshSources, pushToast])
 
   useEffect(() => {
     if (job?.status !== 'done') return
@@ -539,6 +634,37 @@ export default function App() {
     [selectedSourceId, pushToast],
   )
 
+  const startUrlIngest = useCallback(
+    async (url: string, choice?: UrlChoice) => {
+      setUrlBusy(true)
+      setIngesting(true)
+      try {
+        pushToast('info', 'Fetching that VOD…')
+        const started = await api.ingestUrl(url, choice)
+        jobSourceRef.current = null
+        setJob(started)
+        const finished = await pollUntilDone(started.id)
+        if (finished.status === 'error') {
+          pushToast('error', `Download failed: ${finished.error || 'unknown error'}`)
+          return
+        }
+        const source = (finished as unknown as { analysis?: SourceInfo }).analysis
+        await refreshSources()
+        if (source?.id) await selectSource(source.id)
+        setIngestPath('')
+        setUrlPreview(null)
+        setJob(null)
+        pushToast('ok', `Added ${source?.name ?? 'the video'}`)
+      } catch (error) {
+        pushToast('error', `Ingest failed: ${(error as Error).message}`)
+      } finally {
+        setIngesting(false)
+        setUrlBusy(false)
+      }
+    },
+    [pushToast, refreshSources, selectSource],
+  )
+
   const handleIngest = useCallback(
     async (rawPath?: string) => {
       const path = (rawPath ?? ingestPath).trim()
@@ -547,22 +673,28 @@ export default function App() {
       setIngesting(true)
       try {
         if (isUrl) {
-          pushToast('info', 'Fetching that VOD…')
-          const started = await api.ingestUrl(path)
-          jobSourceRef.current = null
-          setJob(started)
-          const finished = await pollUntilDone(started.id)
-          if (finished.status === 'error') {
-            pushToast('error', `Download failed: ${finished.error || 'unknown error'}`)
+          // Show what the video is and which captions it already has, instead of
+          // downloading first and discovering both afterwards.
+          try {
+            const preview = await api.previewSource(path)
+            if (urlLanguages.length === 0) {
+              try {
+                setUrlLanguages(await api.languages())
+              } catch {
+                /* the sheet falls back to an empty picker */
+              }
+            }
+            setUrlPreview(preview)
+            setIngesting(false)
+            return
+          } catch (error) {
+            pushToast(
+              'info',
+              `Could not preview that URL (${(error as Error).message}) - importing it directly.`,
+            )
+            await startUrlIngest(path)
             return
           }
-          const source = (finished as unknown as { analysis?: SourceInfo }).analysis
-          await refreshSources()
-          if (source?.id) await selectSource(source.id)
-          setIngestPath('')
-          setJob(null)
-          pushToast('ok', `Ingested ${source?.name ?? 'the video'}`)
-          return
         }
         setJob(null)
         const source = await api.ingest(path)
@@ -576,7 +708,7 @@ export default function App() {
         setIngesting(false)
       }
     },
-    [ingestPath, refreshSources, selectSource, pushToast],
+    [ingestPath, refreshSources, selectSource, pushToast, startUrlIngest, urlLanguages.length],
   )
 
   const handleDemo = useCallback(async () => {
@@ -651,6 +783,9 @@ export default function App() {
         candidates: current.candidates.map((clip) => (clip.id === updated.id ? updated : clip)),
       }
     })
+    // A trim changes the pages, and the selected clip keeps its id - so the
+    // captions effect would otherwise keep showing the pre-trim words.
+    setCaptionsNonce((value) => value + 1)
   }, [])
 
   const seekClip = useCallback((seconds: number) => {
@@ -679,6 +814,97 @@ export default function App() {
       pushToast('info', `Rendering clip ${clip.rank ? String(clip.rank).padStart(2, '0') : ''}…`)
     },
     [selectedClip, setLayout, pushToast],
+  )
+
+  // ---- first-run tour -----------------------------------------------------
+
+  const refreshReadiness = useCallback(async () => {
+    try {
+      setReadiness(await api.readiness())
+      setReadinessError(null)
+    } catch (error) {
+      setReadinessError((error as Error).message)
+    }
+  }, [])
+
+  // The readiness snapshot is only needed while someone is looking at it.
+  useEffect(() => {
+    if (tour.state.status !== 'running' && !setupOpen) return
+    void refreshReadiness()
+  }, [tour.state.status, tour.state.step, setupOpen, refreshReadiness])
+
+  const tourProgress = useMemo(
+    () => ({
+      source: Boolean(selectedSourceId),
+      analysis: Boolean(analysis),
+      clip: Boolean(selectedClip),
+      verdict: Boolean(selectedClip && verdicts[selectedClip.id]),
+      render: false,
+    }),
+    [selectedSourceId, analysis, selectedClip, verdicts],
+  )
+
+  // A step that names a fact advances by itself once that fact is true, so the
+  // tour follows the work instead of asking people to click "next" twice.
+  useEffect(() => {
+    if (tour.state.status !== 'running' || !tour.step.doneWhen) return
+    if (!tourProgress[tour.step.doneWhen]) return
+    const timer = window.setTimeout(() => tour.next(), 650)
+    return () => window.clearTimeout(timer)
+  }, [tour.state.status, tour.step.doneWhen, tourProgress, tour.next])
+
+  // A brand-new install with no sources gets the tour by itself, once.
+  useEffect(() => {
+    if (tour.state.status !== 'unseen') return
+    if (engine !== 'online' || sources.length > 0 || setupOpen) return
+    const timer = window.setTimeout(() => tour.start(), 900)
+    return () => window.clearTimeout(timer)
+  }, [tour.state.status, engine, sources.length, setupOpen, tour.start])
+
+  const onTourAction = useCallback(
+    (action: TourActionId) => {
+      switch (action) {
+        case 'next':
+          tour.next()
+          return
+        case 'demo':
+          void handleDemo()
+          return
+        case 'analyze':
+          void runAnalyze(false)
+          return
+        case 'select': {
+          const first = clips[0]
+          if (first) {
+            selectClip(first.id)
+            setLayout((current) => ({ ...current, rightOpen: true }))
+          }
+          tour.next()
+          return
+        }
+        case 'approve':
+          if (selectedClip) void handleVerdict(selectedClip.id, 'approve')
+          return
+        case 'render':
+          requestRender()
+          return
+        case 'finish':
+          tour.finish()
+          return
+      }
+    },
+    [
+      tour.next,
+      tour.finish,
+      handleDemo,
+      runAnalyze,
+      clips,
+      selectClip,
+      setLayout,
+      selectedClip,
+      handleVerdict,
+      requestRender,
+    ],
   )
 
   const copyText = useCallback(
@@ -853,11 +1079,11 @@ export default function App() {
       { id: 'edit.resetWorkspace', label: 'Reset workspace layout', group: 'Edit', icon: 'refresh', danger: true, run: () => { setLayout({ ...DEFAULT_LAYOUT, floatRect: defaultFloatRect() }); pushToast('ok', 'Workspace reset.') } },
 
       { id: 'view.palette', label: 'Command palette', group: 'View', icon: 'command', shortcut: 'Ctrl K', run: () => setPaletteOpen(true) },
-      { id: 'view.themes', label: 'Theme atelier…', group: 'View', icon: 'palette', keywords: 'appearance color palette dark light marketplace studio', run: () => setThemesOpen(true) },
+      { id: 'view.themes', label: 'Theme studio…', group: 'View', icon: 'palette', keywords: 'appearance color palette dark light marketplace studio', run: () => setThemesOpen(true) },
       { id: 'view.toggleProject', label: 'Project panel', group: 'View', icon: 'panel-left', shortcut: 'Ctrl B', checked: layout.leftOpen, run: () => setLayout((current) => ({ ...current, leftOpen: !current.leftOpen })) },
       { id: 'view.toggleInspector', label: 'Inspector', group: 'View', icon: 'panel-right', shortcut: 'Ctrl Shift B', checked: layout.rightOpen, run: () => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen })) },
       { id: 'view.floatInspector', label: 'Float inspector', group: 'View', icon: 'grip', checked: layout.inspectorFloating, disabled: !layout.rightOpen, run: () => setLayout((current) => ({ ...current, inspectorFloating: !current.inspectorFloating })) },
-      { id: 'view.reel', label: 'Reel tab', group: 'View', icon: 'film', shortcut: '1', checked: layout.centreTab === 'reel', run: () => setLayout((current) => ({ ...current, centreTab: 'reel' })) },
+      { id: 'view.reel', label: 'Clips tab', group: 'View', icon: 'film', shortcut: '1', checked: layout.centreTab === 'reel', run: () => setLayout((current) => ({ ...current, centreTab: 'reel' })) },
       { id: 'view.monitor', label: 'Monitor tab', group: 'View', icon: 'monitor', shortcut: '2', checked: layout.centreTab === 'monitor', run: () => setLayout((current) => ({ ...current, centreTab: 'monitor' })) },
       { id: 'view.timeline', label: 'Timeline tab', group: 'View', icon: 'timeline', shortcut: '3', checked: layout.centreTab === 'timeline', run: () => setLayout((current) => ({ ...current, centreTab: 'timeline' })) },
       { id: 'view.inspectorProperties', label: 'Inspector — Properties', group: 'View', checked: layout.inspectorTab === 'properties', run: () => setLayout((current) => ({ ...current, rightOpen: true, inspectorTab: 'properties' })) },
@@ -890,10 +1116,11 @@ export default function App() {
       { id: 'clip.next', label: 'Next clip', group: 'Clip', icon: 'chevron-down', shortcut: 'J', disabled: visibleClips.length < 2, run: () => stepClip(1) },
       { id: 'clip.previous', label: 'Previous clip', group: 'Clip', icon: 'chevron-up', shortcut: 'K', disabled: visibleClips.length < 2, run: () => stepClip(-1) },
 
-      { id: 'workspace.triage', label: 'Triage workspace', group: 'Workspace', checked: layout.workspace === 'triage', run: () => applyWorkspace('triage') },
+      { id: 'workspace.triage', label: 'Sort clips', group: 'Workspace', checked: layout.workspace === 'triage', run: () => applyWorkspace('triage') },
       { id: 'workspace.editing', label: 'Editing workspace', group: 'Workspace', checked: layout.workspace === 'editing', run: () => applyWorkspace('editing') },
       { id: 'workspace.review', label: 'Review workspace', group: 'Workspace', checked: layout.workspace === 'review', run: () => applyWorkspace('review') },
 
+      { id: 'help.tour', label: 'Take the tour', group: 'Help', icon: 'sparkles', keywords: 'walkthrough guide onboarding first time', run: () => tour.start(true) },
       { id: 'help.shortcuts', label: 'Keyboard shortcuts', group: 'Help', icon: 'keyboard', shortcut: '?', run: () => setShortcutsOpen(true) },
       { id: 'help.setup', label: 'Hardware & models', group: 'Help', icon: 'sliders', run: () => void openSetup() },
       { id: 'help.about', label: 'About Clip Factory', group: 'Help', icon: 'info', run: () => setAboutOpen(true) },
@@ -921,6 +1148,7 @@ export default function App() {
     pushToast,
     requestRender,
     runAnalyze,
+    tour.start,
     selectedClip,
     selectedSourceId,
     setLayout,
@@ -1061,6 +1289,7 @@ export default function App() {
         return
       }
       if (paletteOpen || shortcutsOpen || aboutOpen || setupOpen) return
+    if (tour.state.status === 'running') return
 
       if (mod && !event.shiftKey && event.key.toLowerCase() === 'b') {
         event.preventDefault()
@@ -1185,6 +1414,22 @@ export default function App() {
 
   const rejectingClip = clips.find((clip) => clip.id === rejecting) ?? null
 
+  const timelineNode = (
+    <Timeline
+      clips={clips}
+      selectedId={selectedClip?.id ?? null}
+      peaks={peaks}
+      duration={duration}
+      fps={fps}
+      verdicts={verdicts}
+      hasSource={Boolean(selectedSourceId)}
+      onSeek={seekClip}
+      onSelect={selectClip}
+      onOpenMonitor={() => setLayout((current) => ({ ...current, centreTab: 'monitor' }))}
+      themeId={theme.activeTheme.id}
+    />
+  )
+
   const statusLabel = ingesting
     ? 'Ingesting'
     : busy
@@ -1208,7 +1453,6 @@ export default function App() {
     captions,
     captionsLoading,
     verdict: selectedClip ? verdicts[selectedClip.id] : undefined,
-    playhead,
     fps,
     tab: layout.inspectorTab,
     clipCount: clips.length,
@@ -1222,6 +1466,51 @@ export default function App() {
     onHookSaved: handleHookSaved,
     onClipUpdated: handleClipUpdated,
     onNotify: pushToast,
+  }
+
+  if (engine !== 'online') {
+    const failed = engine === 'offline'
+    return (
+      <main className="boot-screen">
+        <div className="boot-card">
+          <div className="boot-mark" aria-hidden="true">
+            CF
+          </div>
+          <span className="boot-eyebrow">Clip Factory</span>
+          <h1>{failed ? 'The local engine did not answer' : 'Starting the local engine'}</h1>
+          <p>
+            {failed
+              ? 'The desktop sidecar runs on this machine. Nothing is uploaded and no account is needed.'
+              : 'Warming up the cutter. This usually takes a second.'}
+          </p>
+          {failed ? (
+            <>
+              <code className="boot-detail">{engineError || 'No response from 127.0.0.1:8756'}</code>
+              <div className="boot-actions">
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    setEngine('checking')
+                    void probeEngine()
+                  }}
+                >
+                  Try again
+                </button>
+                <span className="boot-hint">
+                  Running from source? Start the backend on port 8756, then retry.
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="boot-progress" role="status" aria-label="Starting the local engine">
+              <span className="boot-spinner" />
+              <span className="boot-hint">Checking the sidecar on 127.0.0.1:8756</span>
+            </div>
+          )}
+        </div>
+      </main>
+    )
   }
 
   return (
@@ -1305,13 +1594,14 @@ export default function App() {
           </div>
         ) : null}
 
+        <div className="toolbar-actions">
         {analysis ? (
           <div className="engine-pills" aria-label="Active engines">
-            <span className="pill" title={`ASR: ${analysis.asr_backend || 'none'}`}>
-              ASR <b>{analysis.asr_backend || '—'}</b>
+            <span className="pill" title={`Speech model: ${analysis.asr_backend || 'none'}`}>
+              Speech <b>{analysis.asr_backend || '—'}</b>
             </span>
-            <span className="pill" title={`Scorer: ${analysis.llm_backend || 'none'}`}>
-              LLM <b>{analysis.llm_backend || '—'}</b>
+            <span className="pill" title={`Ranking model: ${analysis.llm_backend || 'none'}`}>
+              Ranking <b>{analysis.llm_backend || '—'}</b>
             </span>
             {chat?.available ? (
               <span className="pill" title={`${chat.messages.toLocaleString()} messages`}>
@@ -1331,6 +1621,7 @@ export default function App() {
         <button
           type="button"
           className="btn sm primary analyze-button"
+          data-tour="analyze"
           disabled={!selectedSourceId || labeling}
           onClick={() => void runAnalyze(Boolean(analysis))}
         >
@@ -1353,6 +1644,7 @@ export default function App() {
           label="Hardware and models"
           onClick={() => void openSetup()}
         />
+        </div>
       </header>
 
       {job ? (
@@ -1369,6 +1661,16 @@ export default function App() {
             {job.status === 'error' ? job.error : `${job.detail || job.stage}`}
           </span>
           <span className="job-pct num">{Math.round(job.pct * 100)}%</span>
+          {job.status === 'queued' || job.status === 'running' ? (
+            <button
+              type="button"
+              className="btn sm ghost job-cancel"
+              disabled={job.cancelling}
+              onClick={() => void cancelJob()}
+            >
+              {job.cancelling ? 'Cancelling…' : 'Cancel'}
+            </button>
+          ) : null}
           <IconButton icon="x" size="sm" label="Dismiss job status" onClick={() => setJob(null)} />
           <span className="job-track" aria-hidden="true">
             <i style={{ width: `${Math.round(job.pct * 100)}%` }} />
@@ -1448,7 +1750,7 @@ export default function App() {
             value={layout.centreTab}
             onChange={(id) => setLayout((current) => ({ ...current, centreTab: id as CentreTab }))}
             items={[
-              { id: 'reel', label: 'Reel', icon: 'film', badge: clips.length || undefined },
+              { id: 'reel', label: 'Clips', icon: 'film', badge: clips.length || undefined },
               { id: 'monitor', label: 'Monitor', icon: 'monitor', title: 'Source monitor (2)' },
               { id: 'timeline', label: 'Timeline', icon: 'timeline', title: 'Timeline (3)' },
             ]}
@@ -1464,6 +1766,7 @@ export default function App() {
               <Reel
                 clips={visibleClips}
                 counts={counts}
+                sourceId={selectedSourceId}
                 mediaSrc={mediaSrc ?? ''}
                 selectedId={selectedClip?.id ?? null}
                 verdicts={verdicts}
@@ -1487,8 +1790,9 @@ export default function App() {
                 onImport={() => focusField('ingest')}
               />
             ) : layout.centreTab === 'monitor' ? (
-              <Monitor
-                ref={monitorRef}
+              <div className="centre-split" data-workspace={layout.workspace}>
+                <Monitor
+                  ref={monitorRef}
                 clip={selectedClip}
                 mediaSrc={mediaSrc}
                 sourceName={selectedSource?.name ?? 'No source'}
@@ -1509,23 +1813,14 @@ export default function App() {
                   if (selectedClip) void handleVerdict(selectedClip.id, verdict)
                 }}
                 onOpenOutput={() => setLayout((current) => ({ ...current, rightOpen: true, inspectorTab: 'output' }))}
-                onNotify={pushToast}
-              />
+                  onNotify={pushToast}
+                />
+                {layout.workspace !== 'triage' ? (
+                  <div className="timeline-slot">{timelineNode}</div>
+                ) : null}
+              </div>
             ) : (
-              <Timeline
-                clips={clips}
-                selectedId={selectedClip?.id ?? null}
-                peaks={peaks}
-                duration={duration}
-                playhead={playhead}
-                fps={fps}
-                verdicts={verdicts}
-                hasSource={Boolean(selectedSourceId)}
-                onSeek={seekClip}
-                onSelect={selectClip}
-                onOpenMonitor={() => setLayout((current) => ({ ...current, centreTab: 'monitor' }))}
-                themeId={theme.activeTheme.id}
-              />
+              timelineNode
             )}
           </div>
         </main>
@@ -1606,7 +1901,6 @@ export default function App() {
         statusDetail={statusDetail}
         progress={job && (job.status === 'running' || job.status === 'queued') ? job.pct * 100 : null}
         sourceName={selectedSource?.name ?? null}
-        playhead={playhead}
         duration={duration}
         clipLabel={selectedClip ? `Clip ${selectedClip.rank ? String(selectedClip.rank).padStart(2, '0') : '—'}` : null}
         leftOpen={layout.leftOpen}
@@ -1614,7 +1908,7 @@ export default function App() {
         onToggleLeft={() => setLayout((current) => ({ ...current, leftOpen: !current.leftOpen }))}
         onToggleRight={() => setLayout((current) => ({ ...current, rightOpen: !current.rightOpen }))}
         onOpenShortcuts={() => setShortcutsOpen(true)}
-        workspaceLabel={WORKSPACES.find((item) => item.id === layout.workspace)?.label ?? 'Triage'}
+        workspaceLabel={WORKSPACES.find((item) => item.id === layout.workspace)?.label ?? 'Sort clips'}
         themeName={theme.activeTheme.name}
         themeSwatch={theme.activeTheme.seeds.canvas}
         onOpenThemes={() => setThemesOpen(true)}
@@ -1631,6 +1925,40 @@ export default function App() {
         />
       ) : null}
 
+      {tour.state.status === 'running' &&
+      !paletteOpen &&
+      !themesOpen &&
+      !aboutOpen &&
+      !shortcutsOpen &&
+      !setupOpen ? (
+        <TourOverlay
+          step={tour.step}
+          index={tour.index}
+          total={tour.total}
+          compact={compact}
+          readiness={readiness}
+          readinessError={readinessError}
+          onRefresh={() => void refreshReadiness()}
+          onOpenSetup={() => void openSetup()}
+          onNext={tour.next}
+          onBack={tour.back}
+          onClose={tour.close}
+          onAction={onTourAction}
+        />
+      ) : null}
+
+      {urlPreview ? (
+        <UrlSheet
+          preview={urlPreview}
+          languages={urlLanguages}
+          busy={urlBusy}
+          onCancel={() => {
+            if (!urlBusy) setUrlPreview(null)
+          }}
+          onConfirm={(choice) => void startUrlIngest(urlPreview.url, choice)}
+        />
+      ) : null}
+
       <CommandPalette
         open={paletteOpen}
         commands={Object.values(commands)}
@@ -1638,37 +1966,39 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
       />
 
-      {themesOpen ? (
-        <ThemeAtelier
-          themes={theme.themes}
-          activeId={theme.activeTheme.id}
-          onClose={() => setThemesOpen(false)}
-          onApply={theme.useThemeById}
-          onSave={theme.saveCustom}
-          onDelete={theme.deleteCustom}
-          onToast={pushToast}
-        />
-      ) : null}
+      <Suspense fallback={null}>
+        {themesOpen ? (
+          <ThemeAtelier
+            themes={theme.themes}
+            activeId={theme.activeTheme.id}
+            onClose={() => setThemesOpen(false)}
+            onApply={theme.useThemeById}
+            onSave={theme.saveCustom}
+            onDelete={theme.deleteCustom}
+            onToast={pushToast}
+          />
+        ) : null}
 
-      {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
-      {aboutOpen ? (
-        <AboutDialog
-          version={version}
-          onClose={() => setAboutOpen(false)}
-          onOpenShortcuts={() => {
-            setAboutOpen(false)
-            setShortcutsOpen(true)
-          }}
-        />
-      ) : null}
-      {setupOpen ? (
-        <SetupModal
-          hardware={hardware}
-          error={hardwareError}
-          onClose={() => setSetupOpen(false)}
-          onRefresh={() => void openSetup()}
-        />
-      ) : null}
+        {shortcutsOpen ? <ShortcutsDialog onClose={() => setShortcutsOpen(false)} /> : null}
+        {aboutOpen ? (
+          <AboutDialog
+            version={version}
+            onClose={() => setAboutOpen(false)}
+            onOpenShortcuts={() => {
+              setAboutOpen(false)
+              setShortcutsOpen(true)
+            }}
+          />
+        ) : null}
+        {setupOpen ? (
+          <SetupModal
+            hardware={hardware}
+            error={hardwareError}
+            onClose={() => setSetupOpen(false)}
+            onRefresh={() => void openSetup()}
+          />
+        ) : null}
+      </Suspense>
 
       <div className="toast-stack" aria-live="polite">
         {toasts.map((toast) => (

@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 
-from . import db
+from . import db, policy
 from .config import SETTINGS
 from .domain import (
     AnalysisResult,
@@ -24,12 +25,14 @@ from .domain import (
     clip_id,
     stable_id,
 )
+from .lang import normalise, script_for_language
 from .learn import LEARNER
 from .llm import resolve_scorer
-from .pipeline.align import flat_words, refine_words, words_in_range
+from .pipeline.align import WordIndex, flat_words, refine_words
 from .pipeline.asr import StubASR, resolve_backend
 from .pipeline.gates import evaluate_gates
 from .pipeline.media import (
+    FFMPEG,
     compute_features,
     extract_audio,
     load_peaks,
@@ -104,6 +107,43 @@ def ingest(
 
 
 CHAT_FILE = "chat.json"
+PROXY_FILE = "preview.mp4"
+
+
+def proxy_path_for(source: SourceInfo) -> Path:
+    return artifacts_for(source.id) / PROXY_FILE
+
+
+def build_proxy(source: SourceInfo, progress: Progress | None = None) -> Path:
+    """A 720p browsing copy, so the monitor and thumbnails never seek a 20 GB master.
+
+    The renderer keeps reading the master; this file exists only for the player.
+    """
+
+    out = proxy_path_for(source)
+    if out.exists() and out.stat().st_size > 10_000:
+        return out
+    if progress:
+        progress("proxy", 0.1, "720p preview copy")
+    result = subprocess.run(
+        [
+            FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
+            "-i", source.path,
+            "-vf", "scale=-2:720",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=3600,
+    )
+    if result.returncode != 0 or not out.exists() or out.stat().st_size < 10_000:
+        raise RuntimeError(f"could not build a preview copy: {result.stderr.strip()[:300]}")
+    if progress:
+        progress("proxy", 1.0, "preview ready")
+    return out
 
 
 def chat_path_for(source: SourceInfo) -> Path | None:
@@ -117,7 +157,7 @@ def chat_status(source: SourceInfo) -> dict:
     from .pipeline import chat as chatmod
 
     path = chat_path_for(source)
-    offsets = chatmod.read_dump(path) if path else []
+    offsets = chatmod.read_offsets(path) if path else []
     info = chatmod.coverage(offsets, source.duration)
     info["available"] = bool(offsets)
     info["origin_url"] = source.origin_url
@@ -156,6 +196,74 @@ def artifacts_for(source_id: str) -> Path:
     return out
 
 
+ORIGIN_FILE = "origin.json"
+SUBTITLE_DIR = "subtitles"
+
+
+def subtitles_dir(source: SourceInfo) -> Path:
+    out = artifacts_for(source.id) / SUBTITLE_DIR
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
+def stored_subtitles(source: SourceInfo) -> list[dict]:
+    """Caption tracks already on disk, with cue counts read cheaply."""
+    folder = subtitles_dir(source)
+    out: list[dict] = []
+    for path in sorted(folder.glob("*.vtt")):
+        try:
+            text = path.read_text("utf-8", errors="replace")
+        except OSError:
+            continue
+        out.append(
+            {
+                "language": path.stem,
+                "path": str(path),
+                "cues": text.count("-->"),
+                "bytes": path.stat().st_size,
+            }
+        )
+    return out
+
+
+def fetch_subtitles(
+    source: SourceInfo,
+    language: str,
+    automatic: bool = False,
+    progress: Progress | None = None,
+) -> dict:
+    """Download one caption track for a URL source and keep it with the artifacts."""
+    from .pipeline import fetch as fetchmod
+
+    if not source.origin_url:
+        raise ValueError("this source was not imported from a URL")
+    if progress:
+        progress("subtitles", 0.15, f"captions: {language}")
+    path = fetchmod.fetch_subtitles(
+        source.origin_url, language, automatic, subtitles_dir(source)
+    )
+    if progress:
+        progress("subtitles", 1.0, path.name)
+    return {
+        "path": str(path),
+        "language": path.stem,
+        "cues": path.read_text("utf-8", errors="replace").count("-->"),
+    }
+
+
+def store_preview(source: SourceInfo, preview: dict) -> None:
+    target = artifacts_for(source.id) / ORIGIN_FILE
+    target.write_text(json.dumps(preview, indent=2), "utf-8")
+
+
+def stored_preview(source: SourceInfo) -> dict | None:
+    path = artifacts_for(source.id) / ORIGIN_FILE
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def ensure_audio_artifacts(source: SourceInfo, progress: Progress) -> tuple[Path, Path]:
     work = artifacts_for(source.id)
     wav = work / "audio.wav"
@@ -168,12 +276,44 @@ def ensure_audio_artifacts(source: SourceInfo, progress: Progress) -> tuple[Path
     return wav, peaks
 
 
+def transcript_cache_path(
+    source: SourceInfo,
+    language: str,
+    translate: bool,
+    subtitle_path: str | Path | None,
+    backend: str = "",
+) -> Path:
+    """One cache file per (language, model, engine, mode, subtitle).
+
+    The old `transcript.json` was language-blind: running Hindi after English
+    returned the English words with no sign that it had done so. The engine is
+    part of the key for the same reason: a stub run must never reuse a real
+    whisper transcript, or a forced stub analysis silently reports real words.
+    """
+
+    model = Path(SETTINGS.whisper_model_path or "").stem or "none"
+    subtitle = "none"
+    if subtitle_path:
+        candidate = Path(subtitle_path)
+        try:
+            subtitle = stable_id(str(candidate.resolve()), candidate.stat().st_mtime)
+        except OSError:
+            subtitle = stable_id(str(candidate))
+    mode = "tr" if translate else "orig"
+    engine = "".join(ch if ch.isalnum() else "-" for ch in backend.strip().lower()) or "auto"
+    return artifacts_for(source.id) / (
+        f"transcript.{normalise(language)}.{model}.{engine}.{mode}.{subtitle}.json"
+    )
+
+
 def _transcribe(
     source: SourceInfo,
     wav: Path,
     subtitle_path: str | Path | None,
     progress: Progress,
     duration: float,
+    language: str = "auto",
+    translate: bool = False,
 ):
     from .hardware import find_whisper_cli
 
@@ -183,16 +323,22 @@ def _transcribe(
         vad_model=SETTINGS.vad_model_path,
         subtitle_path=subtitle_path,
         threads=worker_threads(),
+        language=language,
+        translate=translate,
     )
     progress("transcribe", 0.2, f"backend: {backend.name}")
-    cache = artifacts_for(source.id) / "transcript.json"
+    cache = transcript_cache_path(source, language, translate, subtitle_path, backend.name)
     if cache.exists():
         try:
             payload = json.loads(cache.read_text("utf-8"))
             from .domain import Utterance
 
             utterances = [Utterance.model_validate(u) for u in payload["utterances"]]
-            return utterances, payload.get("asr_backend", backend.name)
+            return (
+                utterances,
+                payload.get("asr_backend", backend.name),
+                payload.get("language", normalise(language)),
+            )
         except (KeyError, ValueError, OSError):
             pass
 
@@ -205,13 +351,17 @@ def _transcribe(
         json.dumps(
             {
                 "asr_backend": result.backend,
+                "language": result.language or normalise(language),
+                "model": Path(SETTINGS.whisper_model_path or "").name,
+                "translate": translate,
+                "subtitle_path": str(subtitle_path or ""),
                 "utterances": [u.model_dump() for u in result.utterances],
             }
         ),
         "utf-8",
     )
     progress("transcribe", 0.45, f"{len(result.utterances)} utterances")
-    return result.utterances, result.backend
+    return result.utterances, result.backend, result.language or normalise(language)
 
 
 def build_shortlist(candidates: list[ClipCandidate], budget: int) -> list[ClipCandidate]:
@@ -251,6 +401,8 @@ def analyze(
     limit: int = 10,
     progress: Progress | None = None,
     force: bool = False,
+    language: str = "auto",
+    translate: bool = False,
 ) -> AnalysisResult:
     progress = progress or _noop
     warnings: list[str] = []
@@ -266,7 +418,12 @@ def analyze(
     progress("audio", 0.16, "computing energy / flux / zcr")
     analysis = compute_features(wav, SETTINGS.audio)
 
-    utterances, asr_backend = _transcribe(source, wav, subtitle_path, progress, source.duration)
+    utterances, asr_backend, detected_language = _transcribe(
+        source, wav, subtitle_path, progress, source.duration,
+        language=language, translate=translate,
+    )
+    # Gates judge script against what the transcript actually turned out to be.
+    expected_script = script_for_language(detected_language or language)
     if asr_backend == "stub":
         warnings.append(
             "No ASR available - ran with the deterministic stub transcript. "
@@ -300,7 +457,9 @@ def analyze(
             candidates=[],
             asr_backend=asr_backend,
             llm_backend="none",
+            policy_version=policy.active().version,
             duration_s=0.0,
+            language=normalise(detected_language or language),
             warnings=warnings,
         )
         db.save_analysis(empty)
@@ -323,8 +482,9 @@ def analyze(
     raw: dict[str, list[float]] = {k: [] for k in ("audio", "excitement", "chat", "speech", "hook_lexicon")}
     features_list: list[WindowFeatures] = []
     words_by_window: list[list] = []
+    word_index = WordIndex(all_words)
     for window in windows:
-        words = words_in_range(all_words, window.start, window.end)
+        words = word_index.between(window.start, window.end)
         feats = window_features(
             window.text, window.start, window.end,
             [w.prob for w in words], analysis,
@@ -357,7 +517,9 @@ def analyze(
     # ---- gates ---------------------------------------------------------
     progress("gates", 0.72, "applying quality gates")
     for candidate, window, feats, words in zip(scored, windows, features_list, words_by_window):
-        gates = evaluate_gates(window, feats, words, SETTINGS.gates, source.duration)
+        gates = evaluate_gates(
+            window, feats, words, SETTINGS.gates, source.duration, expected_script
+        )
         candidate.gates = gates
         candidate.blocked = any(not g.passed and g.severity == "block" for g in gates)
 
@@ -427,10 +589,15 @@ def analyze(
         candidates=selected + dropped + rejected_non_shortlist,
         asr_backend=asr_backend,
         llm_backend=scorer.name,
+        policy_version=policy.active().version,
         duration_s=float(analysis.duration),
         reel_quality=reel_quality(selected),
+        language=normalise(detected_language or language),
         warnings=warnings,
     )
+    # A fresh run re-derives words, so manual caption pages no longer line up
+    # with them. Hook overrides are text the user wrote and survive.
+    db.clear_clip_edits(source.id, kind="captions")
     db.save_analysis(result)
     progress("done", 1.0, f"{len(selected)} clips from {len(scored)} windows")
     return result
@@ -512,7 +679,10 @@ def trim_clip(
     candidate.features = features
     candidate.gates = [
         g for g in candidate.gates if g.id in {"not_shortlisted", "llm_critique"}
-    ] + evaluate_gates(window, features, words, SETTINGS.gates, upper)
+    ] + evaluate_gates(
+        window, features, words, SETTINGS.gates, upper,
+        script_for_language(analysis.language),
+    )
     candidate.blocked = any(not g.passed and g.severity == "block" for g in candidate.gates)
 
     hook = candidate.llm.hook if candidate.llm else ""
@@ -523,6 +693,7 @@ def trim_clip(
         # Page timings were written against the old in/out points. Re-deriving
         # from the re-cut words is honest; carrying the edit over would drift.
         candidate.caption_pages = None
+        db.clear_clip_edits(source.id, candidate_id, "captions")
 
     db.save_analysis(analysis)
     return candidate

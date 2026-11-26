@@ -12,7 +12,7 @@
  * sandboxed, and navigation confined to the sidecar origin.
  */
 
-const { app, BrowserWindow, dialog, shell } = require('electron')
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron')
 const { spawn, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const net = require('node:net')
@@ -23,6 +23,32 @@ const isDebug = process.argv.includes('--debug')
 
 let sidecar = null
 let mainWindow = null
+
+// Write-only clipboard bridge. The renderer stays sandboxed and privileged
+// modules stay in the main process; this is only used by "Copy diagnostics".
+ipcMain.handle('clipboard:write', (_event, text) => {
+  if (typeof text !== 'string') return false
+  clipboard.writeText(text.slice(0, 200_000))
+  return true
+})
+
+// Setup's "Open folder" button. The renderer passes a path from the sidecar;
+// resolving it against the app data root is what keeps this from becoming a
+// general "open anything on disk" bridge.
+ipcMain.handle('clip-factory:open-path', async (_event, target) => {
+  const root = path.resolve(app.getPath('userData'))
+  const resolved = path.resolve(String(target || ''))
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    return { ok: false, error: 'That folder is outside the app data folder.' }
+  }
+  try {
+    await fs.promises.mkdir(resolved, { recursive: true })
+    const problem = await shell.openPath(resolved)
+    return problem ? { ok: false, error: problem } : { ok: true, error: '' }
+  } catch (error) {
+    return { ok: false, error: String(error.message || error) }
+  }
+})
 
 function freePort() {
   return new Promise((resolve, reject) => {

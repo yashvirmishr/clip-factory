@@ -172,18 +172,24 @@ def compute_features(wav_path: str | Path, cfg: AudioConfig) -> AudioAnalysis:
             samples = samples[:usable]
             frames = samples.reshape(-1, hop)
             n = frames.shape[0]
-            for i in range(n):
-                frame = frames[i]
-                rms[idx + i] = float(np.sqrt(np.mean(frame * frame) + 1e-12))
-                signs = np.signbit(frame)
-                zcr[idx + i] = float(np.mean(signs[1:] != signs[:-1])) if frame.size > 1 else 0.0
-                seg = frame[: cfg.fft_size]
-                if seg.size < cfg.fft_size:
-                    seg = np.pad(seg, (0, cfg.fft_size - seg.size))
-                mag = np.abs(np.fft.rfft(seg * window))
-                if prev_mag is not None:
-                    flux[idx + i] = float(np.sum(np.maximum(0.0, mag - prev_mag)))
-                prev_mag = mag
+            span = slice(idx, idx + n)
+            # One pass over the block instead of one Python loop per frame. The
+            # arithmetic is the same; only the loop lives in C now.
+            rms[span] = np.sqrt(np.mean(frames * frames, axis=1) + 1e-12)
+            if hop > 1:
+                signs = np.signbit(frames)
+                zcr[span] = np.mean(signs[:, 1:] != signs[:, :-1], axis=1)
+            seg = frames[:, : cfg.fft_size]
+            if seg.shape[1] < cfg.fft_size:
+                seg = np.pad(seg, ((0, 0), (0, cfg.fft_size - seg.shape[1])))
+            magnitudes = np.abs(np.fft.rfft(seg * window, axis=1))
+            if prev_mag is not None:
+                flux[idx] = float(np.sum(np.maximum(0.0, magnitudes[0] - prev_mag)))
+            if n > 1:
+                flux[idx + 1 : idx + n] = np.sum(
+                    np.maximum(0.0, magnitudes[1:] - magnitudes[:-1]), axis=1
+                )
+            prev_mag = magnitudes[-1]
             idx += n
 
     # Normalise flux to a comparable 0..1 range.

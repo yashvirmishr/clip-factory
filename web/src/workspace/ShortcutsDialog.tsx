@@ -7,7 +7,7 @@ const GROUPS: Array<{ title: string; rows: Array<[string, string[]]> }> = [
       ['Command palette', ['Ctrl', 'K']],
       ['Toggle project panel', ['Ctrl', 'B']],
       ['Toggle inspector', ['Ctrl', 'Shift', 'B']],
-      ['Reel / Monitor / Timeline', ['1', '2', '3']],
+      ['Clips / Monitor / Timeline', ['1', '2', '3']],
       ['Keyboard shortcuts', ['?']],
     ],
   },

@@ -1,0 +1,567 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Tour cards</title>
+<style>
+:root{
+  --bg:#f4f1ea; --panel:#fffdf8; --ink:#1b1a17; --line:#e2ddd2; --line-strong:#cfc7b8;
+  --accent:#c2410c; --accent-line:#e7b8a3; --on-accent:#fff;
+  --ok:#2f7d4f; --ok-soft:#e8f3ec; --ok-line:#bcdcc8;
+  --warn:#a16207; --warn-soft:#fbf3df; --warn-line:#e6d3a3;
+  --danger:#b42318; --danger-soft:#fbeae8; --danger-line:#ecc4bf;
+  --raised:#faf7f1; --field:#fff;
+  --r:8px; --ease:cubic-bezier(.2,0,0,1);
+  --font-ui:"Segoe UI",system-ui,sans-serif; --font-display:Georgia,serif; --font-mono:"Cascadia Mono",Consolas,monospace;
+  --u-focus:0 0 0 2px var(--panel),0 0 0 4px var(--accent);
+}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-ui);padding:28px}
+.stage{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start}
+.cell{position:relative;min-height:520px}
+.cell .tour-layer{position:absolute}
+.cell .tour-card{position:absolute}
+.mock{position:absolute;left:24px;top:40px;display:flex;gap:8px;align-items:center;font-family:var(--font-mono);font-size:11px}
+.mock button{height:28px;padding:0 12px;border:1px solid var(--line-strong);background:var(--panel);border-radius:6px;font:inherit}
+.mock button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.label{display:block;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;opacity:.6}
+.btn{height:28px;padding:0 12px;border:1px solid var(--line-strong);border-radius:5px;background:var(--panel);color:var(--ink);font:inherit;font-size:11.5px;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.ghost{background:none}
+.meter{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+/* First-run tour and the setup cards.
+   The layer sits above the workspace (and the command palette) but below
+   dialogs, so an open Setup dialog always wins the stacking contest. */
+
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 380;
+  pointer-events: none;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(1.5px);
+  pointer-events: auto;
+}
+
+.tour-spot {
+  position: absolute;
+  border-radius: calc(var(--r) + 2px);
+  box-shadow:
+    0 0 0 2px var(--accent-line),
+    0 0 0 9999px color-mix(in srgb, var(--bg) 72%, transparent);
+  transition: all 160ms var(--ease);
+}
+
+.tour-card {
+  position: fixed;
+  width: 380px;
+  max-width: calc(100vw - 28px);
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--r) + 2px);
+  box-shadow: 0 24px 60px color-mix(in srgb, #000 34%, transparent);
+  padding: 16px 18px 14px;
+  pointer-events: auto;
+  outline: none;
+}
+
+.tour-card.centred {
+  width: 468px;
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tour-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft, var(--ink));
+  opacity: 0.62;
+}
+
+.tour-close {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  opacity: 0.55;
+  border-radius: var(--r);
+}
+
+.tour-close:hover {
+  opacity: 1;
+}
+
+.tour-title {
+  margin: 10px 0 8px;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: 19px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tour-body,
+.tour-lede {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink);
+  opacity: 0.86;
+}
+
+.tour-meta {
+  margin: 10px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.58;
+}
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.tour-foot-left,
+.tour-foot-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tour-skip {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 11.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 6px 2px;
+}
+
+.tour-skip:hover {
+  opacity: 1;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.tour-dots span {
+  height: 2px;
+  flex: 1;
+  background: var(--line);
+  border-radius: 2px;
+}
+
+.tour-dots span[data-on='true'] {
+  background: var(--accent);
+}
+
+/* ---- setup rows ---- */
+
+.setup-rows {
+  display: grid;
+  gap: 1px;
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.setup-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  background: var(--panel);
+}
+
+.setup-dot {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.setup-row[data-tone='ok'] .setup-dot {
+  color: var(--ok);
+  background: var(--ok-soft, color-mix(in srgb, var(--ok) 12%, transparent));
+  border: 1px solid var(--ok-line, color-mix(in srgb, var(--ok) 40%, transparent));
+}
+
+.setup-row[data-tone='warn'] .setup-dot {
+  color: var(--warn);
+  background: var(--warn-soft, color-mix(in srgb, var(--warn) 12%, transparent));
+  border: 1px solid var(--warn-line, color-mix(in srgb, var(--warn) 40%, transparent));
+}
+
+.setup-row[data-tone='bad'] .setup-dot {
+  color: var(--danger);
+  background: var(--danger-soft, color-mix(in srgb, var(--danger) 12%, transparent));
+  border: 1px solid var(--danger-line, color-mix(in srgb, var(--danger) 40%, transparent));
+}
+
+.setup-row-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.setup-row-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.setup-row-copy p {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.72;
+}
+
+.setup-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  opacity: 0.8;
+  font-weight: 400;
+}
+
+.setup-pill[data-tone='ok'] {
+  color: var(--ok);
+  border-color: var(--ok-line, var(--line-strong));
+}
+
+.setup-fix {
+  flex: 0 0 auto;
+  align-self: center;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: none;
+  color: inherit;
+  font-size: 11.5px;
+  padding: 1px 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.setup-fix:hover {
+  border-bottom-color: var(--ink);
+}
+
+.setup-machine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 12px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.6;
+}
+
+.setup-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.74;
+}
+
+.setup-small {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  opacity: 0.72;
+}
+
+.setup-speech {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.setup-speech-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.setup-speech-head h4 {
+  margin: 0 0 3px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setup-speech-head p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  opacity: 0.72;
+}
+
+.setup-model {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised, var(--panel));
+}
+
+.setup-model-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.setup-model-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+
+.setup-model-copy p {
+  margin: 3px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  opacity: 0.66;
+}
+
+.setup-model .meter {
+  margin-top: 8px;
+}
+
+.setup-progress {
+  margin: 5px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.66;
+}
+
+.setup-progress[data-tone='bad'] {
+  color: var(--danger);
+  opacity: 1;
+}
+
+.setup-runner {
+  margin-top: 14px;
+}
+
+.setup-runner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-path {
+  display: block;
+  margin-top: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--field, var(--bg));
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+
+.setup-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.tour-error {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+/* ---- runner setting (Setup dialog) ---- */
+
+.runner-setting {
+  display: grid;
+  gap: 10px;
+}
+
+.runner-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.runner-head .field-hint {
+  margin: 4px 0 0;
+  display: block;
+  line-height: 1.5;
+}
+
+.runner-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.runner-field {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 220px;
+  font-size: 11px;
+}
+
+.runner-field span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.runner-field input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--field, var(--bg));
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.runner-field input:focus-visible {
+  outline: none;
+  box-shadow: var(--u-focus);
+}
+
+.runner-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.7;
+}
+
+.runner-note[data-tone='ok'] {
+  color: var(--ok);
+  opacity: 1;
+}
+
+.runner-note[data-tone='bad'] {
+  color: var(--danger);
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot {
+    transition: none;
+  }
+}
+</style></head><body>
+<div class="stage">
+  <div class="cell">
+    <div class="tour-layer" style="position:absolute;inset:0;pointer-events:none">
+      <div class="tour-scrim"></div>
+      <section class="tour-card centred" style="left:50%;top:50%;transform:translate(-50%,-50%)">
+        <header class="tour-head"><span class="tour-eyebrow">Setup · 1 of 7</span><button class="tour-close">×</button></header>
+        <h3 class="tour-title">One long video in, a handful of shorts out.</h3>
+        <div class="tour-welcome">
+          <p class="tour-lede">It finds the moments worth posting, cuts them into vertical clips with captions, and you decide what keeps. Everything runs on this computer: nothing is uploaded and there is no account.</p>
+          <p class="tour-meta">About four minutes &nbsp;·&nbsp; stop and resume any time</p>
+        </div>
+        <footer class="tour-foot">
+          <div class="tour-foot-left"><button class="tour-skip">Skip to the app</button></div>
+          <div class="tour-foot-right"><button class="btn primary">Start setup</button></div>
+        </footer>
+        <div class="tour-dots"><span data-on="true"></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="tour-layer" style="position:absolute;inset:0;pointer-events:none">
+      <div class="tour-scrim"></div>
+      <section class="tour-card centred" style="left:50%;top:50%;transform:translate(-50%,-50%);width:468px">
+        <header class="tour-head"><span class="tour-eyebrow">Setup · 2 of 7</span><button class="tour-close">×</button></header>
+        <h3 class="tour-title">Is this computer ready?</h3>
+        <p class="tour-body">Three checks, and two usually already pass.</p>
+        <div class="tour-readiness">
+          <div class="setup-rows">
+            <div class="setup-row" data-tone="ok"><span class="setup-dot">✓</span><div class="setup-row-copy"><div class="setup-row-title">Video tools<span class="setup-pill">ready</span></div><p>ffmpeg found. Cutting, captions and rendering will work.</p></div></div>
+            <div class="setup-row" data-tone="warn"><span class="setup-dot">!</span><div class="setup-row-copy"><div class="setup-row-title">Reading speech<span class="setup-pill">needs a model</span></div><p>Clips still work, but from a stand-in transcript rather than the real words.</p></div><button class="setup-fix">Fix this ›</button></div>
+            <div class="setup-row" data-tone="ok"><span class="setup-dot">✓</span><div class="setup-row-copy"><div class="setup-row-title">Judging clips<span class="setup-pill">built-in</span></div><p>Ranks moments with the built-in rules. A local model is optional, not required.</p></div><button class="setup-fix">Change</button></div>
+          </div>
+          <p class="setup-machine"><span>16 GB memory</span><span>·</span><span>no graphics card</span><span>·</span><span>Windows 11</span></p>
+          <p class="setup-note">This machine fits the small speech model comfortably. Everything else is optional.</p>
+        </div>
+        <footer class="tour-foot"><div class="tour-foot-left"><button class="btn ghost">Back</button><button class="tour-skip">Skip the tour</button></div><div class="tour-foot-right"><button class="btn primary">Continue</button></div></footer>
+        <div class="tour-dots"><span data-on="true"></span><span data-on="true"></span><span></span><span></span><span></span><span></span><span></span></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="mock"><button>Import</button><button class="primary" style="box-shadow:0 0 0 2px var(--accent-line)">Analyze</button><span style="opacity:.5">workspace behind</span></div>
+    <section class="tour-card anchored" style="left:24px;top:110px;position:absolute">
+      <header class="tour-head"><span class="tour-eyebrow">Tour · 4 of 7</span><button class="tour-close">×</button></header>
+      <h3 class="tour-title">Let it watch the whole thing.</h3>
+      <p class="tour-body">Analysis reads the speech, finds the moments worth keeping, then scores them. A four-minute video takes under a minute.</p>
+      <footer class="tour-foot"><div class="tour-foot-left"><button class="btn ghost">Back</button><button class="tour-skip">Skip the tour</button></div><div class="tour-foot-right"><button class="btn primary">Analyze</button></div></footer>
+      <div class="tour-dots"><span data-on="true"></span><span data-on="true"></span><span data-on="true"></span><span data-on="true"></span><span></span><span></span><span></span></div>
+    </section>
+  </div>
+
+  <div class="cell">
+    <section class="tour-card" style="position:absolute;left:24px;top:40px">
+      <header class="runner-head"><div><span class="label">Scoring model runner</span><p class="field-hint">Optional. Point this at a llama-server you already run; scoring uses its model for the next analysis.</p></div><span class="setup-pill">built-in</span></header>
+      <div class="runner-row"><label class="runner-field"><span>Address</span><input type="url" placeholder="http://127.0.0.1:8080"></label><button class="btn ghost">Test</button><button class="btn primary">Save</button></div>
+      <p class="runner-note">Leave it empty to use the built-in rules.</p>
+    </section>
+  </div>
+</div>
+</body></html>

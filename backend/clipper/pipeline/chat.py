@@ -29,6 +29,8 @@ import re
 import tempfile
 from pathlib import Path
 
+import numpy as np
+
 GQL_ENDPOINT = "https://gql.twitch.tv/gql"
 PUBLIC_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"
 MAX_COMMENTS = 250_000
@@ -233,6 +235,35 @@ def read_dump(path: Path) -> list[float]:
             out.append(seconds)
     out.sort()
     return out
+
+
+def offsets_cache_path(path: Path) -> Path:
+    return Path(path).with_suffix(".offsets.npz")
+
+
+def read_offsets(path: Path | str) -> list[float]:
+    """Sorted offsets, cached in a small array beside the dump.
+
+    A two-hour chat dump is tens of megabytes of JSON; parsing and sorting it on
+    every source click is the most avoidable cost in the UI. The cache is keyed
+    on the dump's mtime, so a hand-dropped file still wins.
+    """
+
+    p = Path(path)
+    cache = offsets_cache_path(p)
+    try:
+        if cache.exists() and cache.stat().st_mtime >= p.stat().st_mtime:
+            with np.load(cache) as data:
+                return [float(value) for value in data["offsets"]]
+    except (OSError, ValueError, KeyError):
+        pass
+    values = read_dump(p)
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cache, offsets=np.asarray(values, dtype=np.float32))
+    except (OSError, ValueError):
+        pass
+    return values
 
 
 def coverage(offsets: list[float], duration: float) -> dict:

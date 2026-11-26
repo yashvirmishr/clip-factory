@@ -10,6 +10,8 @@ correct. Three cheap passes fix most of the drift, without a second model:
 
 from __future__ import annotations
 
+import bisect
+
 import numpy as np
 
 from ..domain import Word
@@ -95,7 +97,32 @@ def _repair_durations(words: list[Word], factor: float) -> list[Word]:
 
 
 def words_in_range(words: list[Word], start: float, end: float) -> list[Word]:
-    return [w for w in words if w.end > start and w.start < end]
+    return WordIndex(words).between(start, end)
+
+
+class WordIndex:
+    """Binary-search slices of a start-sorted word list.
+
+    A two-hour source has ~20k words and every window used to scan all of them,
+    which is millions of comparisons per analysis. Windows arrive in order, but
+    a plain bisect on the start times is enough and stays correct if they do not.
+    """
+
+    __slots__ = ("words", "starts")
+
+    def __init__(self, words: list[Word]) -> None:
+        self.words = words
+        self.starts = [word.start for word in words]
+
+    def between(self, start: float, end: float) -> list[Word]:
+        if not self.words or end <= start:
+            return []
+        hi = bisect.bisect_left(self.starts, end)
+        lo = hi
+        # A word that begins before this window may still reach into it.
+        while lo > 0 and self.words[lo - 1].end > start:
+            lo -= 1
+        return self.words[lo:hi]
 
 
 def flat_words(utterances: list) -> list[Word]:

@@ -146,5 +146,70 @@ def test_auto_framing_without_a_plan_falls_back_to_centre_crop():
         src=Path("in.mp4"), out=Path("out.mp4"), start=0.0, duration=5.0,
         ass_name="a.ass", framing="auto", crop_w=0,
     )
-    assert "gblur" not in build_filter_graph(spec) or True  # must not crash
-    assert build_filter_graph(spec)
+    graph = build_filter_graph(spec)
+    # "auto" means a crop. Without a plan it is a still centre crop, not the
+    # blur pad the user did not choose.
+    assert "gblur" not in graph
+    assert "crop=1080:1920" in graph
+
+
+def _face_box(cx: float, cy: float = 90.0, w: float = 60.0, h: float = 70.0):
+    from clipper.pipeline.faces import Face
+
+    return Face(x=cx - w / 2, y=cy - h / 2, w=w, h=h, score=0.9)
+
+
+def test_face_plan_follows_the_detected_face():
+    from clipper.pipeline.framing import plan_from_detections
+
+    times = [0.0, 0.25, 0.5, 0.75, 1.0]
+    detections = [[_face_box(760)], [_face_box(800)], [_face_box(840)], [_face_box(880)], [_face_box(900)]]
+    plan = plan_from_detections(times, detections, [(0.0, 1.0)], 960, 540, 0.0)
+    assert plan is not None
+    assert plan.method == "faces"
+    assert plan.crop_w == crop_width_for(960, 540)
+    # The face moves right, so the crop travels right and never leaves the frame.
+    assert plan.knots[-1][1] > plan.knots[0][1]
+    assert 0 <= plan.at(0.0) <= plan.maximum_x
+    assert 0 <= plan.at(5.0) <= plan.maximum_x
+
+
+def test_face_plan_without_detections_is_none_so_activity_answers():
+    from clipper.pipeline.framing import plan_from_detections
+
+    assert plan_from_detections([0.0, 1.0], [[], []], [(0.0, 1.0)], 960, 540, 0.0) is None
+    assert plan_from_detections([], [], [(0.0, 1.0)], 960, 540, 0.0) is None
+
+
+def test_a_wobbling_face_does_not_produce_a_knot_per_frame():
+    from clipper.pipeline.framing import plan_from_detections
+
+    times = [index * 0.25 for index in range(16)]
+    # Two-pixel jitter around x=800: a camera that follows this looks handheld.
+    detections = [[_face_box(800 + (index % 2) * 2)] for index in range(16)]
+    plan = plan_from_detections(times, detections, [(0.0, 4.0)], 960, 540, 0.0, deadband=8.0)
+    assert plan is not None
+    assert len(plan.knots) <= 2
+
+
+def test_simplify_caps_the_knot_count_and_covers_the_end():
+    from clipper.pipeline.framing import simplify_knots
+
+    knots = [(index * 0.5, index * 40.0) for index in range(40)]
+    kept = simplify_knots(knots, clip_end=20.0, deadband=8.0, max_knots=6)
+    assert len(kept) <= 7
+    assert kept[0][0] == 0.0
+    assert kept[-1][0] == pytest.approx(20.0)
+
+
+def test_clip_plan_prefers_faces_but_never_needs_them(monkeypatch):
+    from clipper.pipeline import framing as framing_module
+
+    monkeypatch.setattr(framing_module, "face_plan_for_clip", lambda *a, **k: None)
+    # No face model configured is the normal case: planning still returns the
+    # activity answer (or None for missing media), and never raises.
+    from clipper.domain import ClipCandidate, SourceInfo
+
+    source = SourceInfo(id="s", name="s", path="missing.mp4", duration=60.0, width=1920, height=1080)
+    candidate = ClipCandidate(id="c", source_id="s", start=0.0, end=10.0, text="hi")
+    assert framing_module.plan_for_clip(source, candidate, []) is None

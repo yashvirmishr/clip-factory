@@ -215,6 +215,104 @@ def build_plan(
     )
 
 
+def simplify_knots(
+    knots: list[tuple[float, float]],
+    clip_end: float,
+    deadband: float = 8.0,
+    max_knots: int = 24,
+) -> list[tuple[float, float]]:
+    """Drop knots that would not visibly move the camera, and cap the count.
+
+    A tracked face wobbles by a few pixels every frame. Panning to each of those
+    reads as a shaky camera, so anything inside the deadband is discarded and
+    the path stays one deliberate move per real change of position.
+    """
+    ordered = sorted(knots, key=lambda knot: knot[0])
+    if not ordered:
+        return []
+    kept: list[tuple[float, float]] = [ordered[0]]
+    for when, x in ordered[1:]:
+        if abs(x - kept[-1][1]) >= deadband:
+            kept.append((when, x))
+    # The camera must be defined to the last frame even when nothing moved.
+    if kept[-1][0] < clip_end:
+        if abs(kept[-1][1] - ordered[-1][1]) >= deadband:
+            kept.append((clip_end, ordered[-1][1]))
+        else:
+            kept.append((clip_end, kept[-1][1]))
+    if max_knots > 1 and len(kept) > max_knots:
+        stride = (len(kept) - 1) / (max_knots - 1)
+        picked = [kept[int(round(index * stride))] for index in range(max_knots)]
+        kept = picked
+    if kept[0][0] > 0:
+        kept.insert(0, (0.0, kept[0][1]))
+    return kept
+
+
+def plan_from_detections(
+    times: list[float],
+    detections: list[list],
+    shots: list[tuple[float, float]],
+    src_w: int,
+    src_h: int,
+    clip_start: float,
+    out_w: int = 1080,
+    out_h: int = 1920,
+    detect_fps: float = 4.0,
+    deadband: float = 8.0,
+    max_knots: int = 24,
+) -> "CropPlan | None":
+    """A crop path from detected faces, one position per shot.
+
+    Kept free of OpenCV on purpose: the detector is the only part that needs the
+    optional package, so the maths here is testable with plain boxes.
+    """
+    from . import faces as facemod
+
+    crop_w = crop_width_for(src_w, src_h, out_w, out_h)
+    if crop_w <= 0 or not shots or not times or not detections:
+        return None
+    tracks = facemod.track(detections, times, fps=detect_fps)
+    if not tracks:
+        return None
+
+    maximum_x = max(0, src_w - crop_w)
+    confidence = 0.0
+    knots: list[tuple[float, float]] = []
+    for shot_start, shot_end in shots:
+        track, _reason = facemod.choose_subject(
+            tracks, shot_start, shot_end, crop_w, float(src_w)
+        )
+        if track is None:
+            continue
+        inside = [
+            (when, box)
+            for when, box in zip(track.times, track.boxes)
+            if shot_start - 1e-6 <= when <= shot_end + 1e-6
+        ] or list(zip(track.times, track.boxes))
+        if not inside:
+            continue
+        for when, box in inside:
+            left = float(np.clip(box.cx - crop_w / 2.0, 0, maximum_x))
+            left = round(left / 2) * 2
+            knots.append((max(0.0, when - clip_start), left))
+        spread = max(box.cx for _when, box in inside) - min(box.cx for _when, box in inside)
+        confidence = max(confidence, min(1.0, len(inside) / 4.0) * min(1.0, 1.0 - spread / max(1.0, src_w)))
+
+    if not knots:
+        return None
+    clip_end = max(0.0, shots[-1][1] - clip_start)
+    kept = simplify_knots(knots, clip_end, deadband, max_knots)
+    return CropPlan(
+        src_w=src_w,
+        src_h=src_h,
+        crop_w=crop_w,
+        knots=tuple((round(t, 3), float(x)) for t, x in kept),
+        confidence=round(confidence, 3),
+        method="faces",
+    )
+
+
 def _frame_times(count: int, start: float, fps: float) -> list[float]:
     return [round(start + index / max(fps, 1e-6), 3) for index in range(count)]
 
@@ -275,6 +373,55 @@ def _cached_plan(
     return build_plan(times, frame_interest(frames, cfg), list(shots), src_w, src_h, start)
 
 
+def face_plan_for_clip(source: SourceInfo, candidate: ClipCandidate, cuts: list[float]):
+    """Face-tracked plan, or ``None`` to let the activity tracker answer.
+
+    Never raises: a missing package, a missing model or an unreadable frame all
+    mean "this machine cannot do faces", not "this clip has no framing".
+    """
+    from . import faces as facemod
+    from .scenes import shots_between
+
+    cfg = SETTINGS.framing
+    if not cfg.face_model or not facemod.available(cfg.face_model):
+        return None
+    if source.width <= 0 or source.height <= 0:
+        return None
+    path = Path(source.path).resolve()
+    if not path.exists():
+        return None
+    shots = shots_between(cuts, candidate.start, candidate.end, cfg.min_shot_s)
+    detect_cfg = FramingConfig(
+        grid_width=cfg.detect_width,
+        grid_height=max(2, round(cfg.detect_width * 9 / 16)),
+        sample_fps=cfg.detect_fps,
+        face_model=cfg.face_model,
+        detect_fps=cfg.detect_fps,
+    )
+    times, frames = sample_frames(
+        path, candidate.start, candidate.end - candidate.start, detect_cfg
+    )
+    if len(times) == 0 or frames.size == 0:
+        return None
+    # The sampler hands back RGB; YuNet and cv2 expect BGR.
+    bgr = np.ascontiguousarray(frames[..., ::-1])
+    try:
+        detections = facemod.detect(list(bgr), cfg.face_model, cfg.face_score)
+    except Exception:  # noqa: BLE001 - optional dependency, never fatal
+        return None
+    return plan_from_detections(
+        times,
+        detections,
+        shots,
+        source.width,
+        source.height,
+        candidate.start,
+        detect_fps=cfg.detect_fps,
+        deadband=cfg.deadband_px,
+        max_knots=cfg.max_knots,
+    )
+
+
 def plan_for_clip(
     source: SourceInfo,
     candidate: ClipCandidate,
@@ -289,6 +436,9 @@ def plan_for_clip(
     path = Path(source.path).resolve()
     if not path.exists():
         return None
+    face_plan = face_plan_for_clip(source, candidate, cuts)
+    if face_plan is not None:
+        return face_plan
     shots = shots_between(cuts, candidate.start, candidate.end, cfg.min_shot_s)
     try:
         mtime = path.stat().st_mtime

@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30
 pydantic>=2.7
 numpy>=1.26
 httpx>=0.27
+keyring>=25
 # URL import (Twitch/YouTube VODs). Optional at runtime: the app degrades to
 # local files with a clear message when it is missing.
 yt-dlp>=2024.1

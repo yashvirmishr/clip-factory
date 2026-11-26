@@ -14,7 +14,7 @@ from io import BytesIO
 import pytest
 
 from clipper.domain import ClipCandidate, LLMJudgement, SourceInfo, Word
-from clipper.editors import bundle, edl, otio, srt, xmeml
+from clipper.editors import bundle, edl, fcpxml, otio, srt, vtt, xmeml
 from clipper.editors.spec import spec_for
 from clipper.pipeline.caption import CaptionWord, edit_pages
 from clipper.editors.timecode import (
@@ -62,6 +62,54 @@ def make_candidate(start=45.0, end=63.0) -> ClipCandidate:
 
 def make_spec(**kwargs):
     return spec_for(make_source(), make_candidate(), 1, **kwargs)
+
+
+# ---------------------------------------------------------------- fcpxml
+
+
+def _xml(document: str):
+    body = document.split("?>", 1)[1].replace("<!DOCTYPE fcpxml>", "")
+    return ET.fromstring(body)
+
+
+def test_fcpxml_is_version_1_10_with_a_rational_timeline():
+    root = _xml(fcpxml.build([make_spec(), make_spec()], "Reel"))
+    assert root.tag == "fcpxml"
+    assert root.get("version") == "1.10"
+
+    spine = root.find("./library/event/project/sequence/spine")
+    clips = spine.findall("asset-clip")
+    assert len(clips) == 2
+    duration = clips[0].get("duration")
+    assert duration.endswith("s") and "/" in duration
+    # The second clip is offset by the first one's duration, not by zero.
+    assert clips[0].get("offset") != clips[1].get("offset")
+    assert clips[1].get("start").endswith("s")
+
+
+def test_fcpxml_declares_each_asset_once():
+    root = _xml(fcpxml.build([make_spec(), make_spec()]))
+    assets = root.findall("./resources/asset")
+    assert len(assets) == 1
+    assert assets[0].find("media-rep").get("src").startswith("file://")
+
+
+def test_fcpxml_carries_the_hook_as_a_marker():
+    spec = make_spec()
+    root = _xml(fcpxml.build([spec]))
+    marker = root.find("./library/event/project/sequence/spine/asset-clip/marker")
+    if spec.hook:
+        assert marker is not None and marker.get("value")
+    else:
+        assert marker is None
+
+
+def test_vtt_matches_the_srt_pages():
+    spec = make_spec()
+    document = vtt.build(spec)
+    assert document.startswith("WEBVTT")
+    assert "-->" in document
+    assert "." in document.split("-->")[1].split()[0]  # dot, not comma
 
 
 # ---------------------------------------------------------------- timecode

@@ -1,10 +1,15 @@
 """Measure the real cost of the pipeline, stage by stage.
 
-    python scripts/perf.py [path-to-video]
+    python scripts/perf.py [path-to-video] [--stub]
 
 Prints duration and peak resident memory per stage against the budgets the
 design promises. Nothing here is estimated: if a number is wrong, fix the code
 or fix the budget, not the number.
+
+``--stub`` forces the deterministic stub transcript. Use it for the shipped
+demo: its audio is tones, not speech, so a real whisper model correctly finds
+nothing and the pipeline stops before scoring. Pass a real video to measure a
+real model.
 """
 
 from __future__ import annotations
@@ -37,9 +42,19 @@ BUDGETS = {
 
 
 def main() -> int:
+    flags = {arg for arg in sys.argv[1:] if arg.startswith("-")}
+    paths = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+    if "--stub" in flags:
+        # The demo's audio is a tone, not speech. Real ASR returns no words and
+        # the run stops at zero windows, which measures nothing. This makes the
+        # fixture's synthetic transcript the measured path.
+        from clipper.pipeline.asr import WhisperCppASR
+
+        WhisperCppASR.available = lambda self: False  # type: ignore[method-assign]
+
     db.init()
-    if len(sys.argv) > 1:
-        path = Path(sys.argv[1])
+    if paths:
+        path = Path(paths[0])
     else:
         path = demo.generate(SETTINGS.media_dir(), seconds=180)
         print(f"using generated demo clip: {path}")
@@ -96,6 +111,12 @@ def main() -> int:
         print(
             "\nnote: stub ASR was used, so the transcribe figure excludes the whisper\n"
             "      process. Expect roughly +0.5 GB (small.en) to +1.5 GB (medium.en)."
+        )
+    elif not any(candidate.rank for candidate in result.candidates):
+        print(
+            "\nnote: no clips came out. The generated demo contains tones, not speech,\n"
+            "      so real ASR correctly transcribes nothing. Re-run with --stub for\n"
+            "      the pipeline baseline, or pass a real video to measure ASR."
         )
     return 0
 

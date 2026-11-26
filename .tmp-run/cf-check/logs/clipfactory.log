@@ -1,0 +1,27 @@
+2026-11-26 07:07:44 INFO    clipper.logging_setup: logging to C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log (level INFO)
+2026-11-26 07:07:45 INFO    clipper.api: Clip Factory 0.1.0 starting (pid 14520, data C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check, log C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log)
+2026-11-26 07:07:45 INFO    clipper.api: database ready at C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\clipper.sqlite3
+2026-11-26 07:07:46 INFO    clipper.api: hardware encoder ready: h264_amf
+2026-11-26 07:08:21 INFO    clipper.logging_setup: logging to C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log (level INFO)
+2026-11-26 07:08:22 INFO    clipper.api: Clip Factory 0.1.0 starting (pid 8856, data C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check, log C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log)
+2026-11-26 07:08:22 INFO    clipper.api: database ready at C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\clipper.sqlite3
+2026-11-26 07:08:22 INFO    clipper.api: hardware encoder ready: h264_amf
+2026-11-26 07:08:51 INFO    clipper.jobs: job 1795648131268-1 (proxy) queued on the io lane
+2026-11-26 07:08:51 INFO    clipper.jobs: job 1795648131268-1 (proxy) started on the io lane
+2026-11-26 07:08:51 INFO    clipper.jobs: job 1795648131272-2 (analyze) queued on the compute lane
+2026-11-26 07:08:51 INFO    clipper.jobs: job 1795648131272-2 (analyze) started on the compute lane
+2026-11-26 07:08:54 INFO    clipper.jobs: job 1795648131272-2 (analyze) finished in 3.3s audio=1.1s transcribe=0.0s align=0.1s windows=1.3s signals=0.3s gates=0.3s score=0.1s select=0.1s done=0.0s
+2026-11-26 07:09:10 INFO    clipper.jobs: job 1795648131268-1 (proxy) finished in 18.8s proxy=18.8s
+2026-11-26 07:09:11 INFO    clipper.jobs: job 1795648151199-3 (render) queued on the compute lane
+2026-11-26 07:09:11 INFO    clipper.jobs: job 1795648151199-3 (render) started on the compute lane
+2026-11-26 07:09:16 INFO    clipper.jobs: job 1795648151199-3 (render) finished in 5.1s framing=0.2s captions=0.0s render=4.8s
+2026-11-26 07:12:23 INFO    clipper.jobs: job 1795648343832-4 (render) queued on the compute lane
+2026-11-26 07:12:23 INFO    clipper.jobs: job 1795648343832-4 (render) started on the compute lane
+2026-11-26 07:12:23 INFO    clipper.jobs: job 1795648343832-4 (render) finished in 0.1s framing=0.1s
+2026-11-26 07:14:45 INFO    clipper.logging_setup: logging to C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log (level INFO)
+2026-11-26 07:14:46 INFO    clipper.api: Clip Factory 0.1.0 starting (pid 19412, data C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check, log C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log)
+2026-11-26 07:14:46 INFO    clipper.api: database ready at C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\clipper.sqlite3
+2026-11-26 07:14:46 INFO    clipper.api: hardware encoder ready: h264_amf
+2026-11-26 07:21:43 INFO    clipper.jobs: job 1795648903744-1 (render) queued on the compute lane
+2026-11-26 07:21:43 INFO    clipper.jobs: job 1795648903744-1 (render) started on the compute lane
+2026-11-26 07:21:49 INFO    clipper.jobs: job 1795648903744-1 (render) finished in 5.8s framing=0.7s captions=0.0s render=5.2s

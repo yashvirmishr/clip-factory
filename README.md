@@ -5,14 +5,36 @@ posting and hands you a reviewable reel with a quality scorecard on every clip.
 Nothing is uploaded, and the only model is the one you install.
 
 Built for laptops that are not fast: the deterministic signals do the finding,
-the LLM only re-ranks a short list, and the whole analysis pipeline runs in
-~65 MB of resident memory for a 2-minute source (see [Measured cost](#measured-cost)).
+the LLM only re-ranks a short list, and the whole analysis pipeline peaks under
+90 MB of resident memory for a 3-minute source (see [Measured cost](#measured-cost)
+and the [performance baseline](docs/perf-baseline.md)).
 
-![The reel](docs/ui-reel.png)
+![The clip list in the Sort clips workspace](docs/wiki/images/workspace-reel.png)
 
 The workspace ships with six themes and a Studio for making your own. Every panel,
 hairline and monitor tone comes from nine seeds; see [theme authoring](docs/theme-authoring.md)
-for the file format and a starter theme.
+for the file format and a starter theme. The full manual starts at the
+[wiki](docs/wiki/Home.md).
+
+## Your first five minutes
+
+Install, open the app, and follow the seven-step tour: it sets up the machine,
+then makes one real clip with you. The demo video needs no models, so the tour
+works on a fresh install.
+
+1. **One long video in.** Drop a file, paste a link, or press **Demo stream**.
+2. **Is this computer ready?** Three checks: video tools, reading speech, judging
+   clips. Two usually pass. Nothing blocks you.
+3. **Let it watch.** Press **Analyze**; the status bar says Listening, Reading
+   speech, Finding moments, Scoring, Picking clips.
+4. **Read what it found.** Each card shows the hook, what it noticed, and the score.
+5. **You get the last word.** Approve or reject. Rejections teach the ranking.
+6. **Make the file.** Render writes a vertical MP4 with burned-in captions.
+
+Stop and resume any time; progress is saved. The tour is also under
+**Help → Take the tour**, and the written version is
+[Your First Clip](docs/wiki/Your-First-Clip.md). Setup again is
+**Help → This computer**, where the optional model runner address also lives.
 
 ---
 
@@ -22,6 +44,7 @@ for the file format and a starter theme.
 |---|---|
 | Ingest: local file or VOD URL (yt-dlp), ffprobe, streamed audio, peak pyramid | working |
 | Transcription: whisper.cpp adapter + SRT/VTT import + deterministic stub | working |
+| Languages: per-ingest language picker, translate-to-English, script-aware text handling | working |
 | Word alignment (monotonic clamp, silence snapping, outlier repair) | working |
 | Signals, percentile fusion, sentence-aligned windows | working |
 | Chat replay: Twitch VOD fetch, coverage report, chat signal | working |
@@ -29,8 +52,9 @@ for the file format and a starter theme.
 | LLM re-ranking with GBNF-constrained JSON, plus a labelled stub scorer | working |
 | Diversity/overlap/dedupe selection | working |
 | Caption page grouping with CPS + line-budget warnings | working |
+| Subtitle studio: per-clip preset and overrides, apply to all, reset | working |
 | Scene-cut detection, window snapping, shot boundaries | working |
-| Auto reframe: subject-following 9:16 crop with a per-shot camera path | working |
+| Auto reframe: per-shot 9:16 crop from motion + skin; optional face model | working |
 | Trim in/out with transcript, captions and gates kept in sync | working |
 | Feedback loop: decision log → personal re-ranker → few-shot memory → style profile | working |
 | Hardware probe + tier advisory + model recommendations | working |
@@ -39,6 +63,7 @@ for the file format and a starter theme.
 | ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
 | Editor handoff: OTIO, FCP7 XML, CMX 3600 EDL, SRT, zip bundle | working |
+| Publishing: YouTube upload with your own OAuth client, queue, retry, cancel | working |
 | Gold-set pick-quality harness + CI regression gate | working |
 | Installer, bundled binaries, LICENSE, real-VOD gold sets | **not yet built** |
 
@@ -100,7 +125,7 @@ quality score, so "is this better?" is a number and not a vibe.
 | "A virality score from 0–100" (Klap) | A blended score plus a reason; explicitly **a ranking signal, not a forecast** |
 | "Reads the transcript and picks moments that work alone" | Same, with a grounding check that the hook is entailed by the transcript |
 | "Chapters first, then clips" (OpusClip) | Chapter spans exist for spreading picks; selection is still window-level |
-| "Auto Reframe tracks the active speaker" | Tracked by column motion + skin density, not a face model — cheaper, and honest about what it measures |
+| "Auto Reframe tracks the active speaker" | Motion + skin density by default; an optional face model tracks faces per shot. Neither does speaker diarization, so a wide shot can still follow the wrong person |
 | "Vendors do not publish their rubric" | The scorecard here is eight named checks you can read on screen |
 
 ---
@@ -174,8 +199,6 @@ Open **Hardware & models → Models**. Every curated model is listed with its si
 whether it fits the memory free *right now*, and whether it is already in use.
 Download is in-app, resumable, and leaves a SHA-256 beside the file so a truncated
 download is caught on the next run instead of at inference time.
-
-![Model manager](docs/ui-models.png)
 
 Transcription also needs a `whisper.cpp` binary, which is not shipped: drop
 `whisper-cli.exe` into `<data>\bin` or put it on `PATH`. The dialog tells you when
@@ -293,18 +316,30 @@ The clip is finished in one `ffmpeg` pass: source trimmed, reframed to
 
 | Preset | Look |
 |---|---|
-| `hormozi` | heavy Arial Black, one line at a time, orange on black outline |
-| `box` | solid plate behind each line, high contrast for noisy footage |
-| `karaoke` | white text, orange word-by-word fill using ASS `\k` tags |
-| `minimal` | light weight, low position, no outline |
-| `landscape` | 16:9 passthrough for non-vertical platforms |
+| `hormozi` | heavy Arial Black, uppercase, dark outline; warm-white words fill tungsten as spoken |
+| `box` | heavy uppercase type in a translucent dark box; high contrast for noisy footage |
+| `karaoke` | white text with a yellow-green word-by-word sweep using ASS `\kf` tags |
+| `minimal` | Segoe UI Semibold, sentence case, quiet outline |
+| `landscape` | smaller sentence-case type with a tighter bottom margin; still rendered 9:16 |
+| `bold_center` | centred white Arial Black with no bottom margin |
+| `serif_editorial` | Georgia, sentence case, soft shadow; a quieter editorial look |
+| `outline_only` | white Arial Black with a thick outline and no fill box |
+| `neon` | yellow Segoe UI Semibold with a dark outline |
+| `ticker` | small Arial with a low bottom margin |
+| `podcast` | Segoe UI over a translucent dark bar |
+| `comic` | Comic Sans, orange, uppercase |
+
+A preset is a starting point, not a global setting. Each clip can save its own
+preset plus font, size, colour, outline, margin, case and word-animation
+overrides in the subtitle studio; **Apply to all** copies that look across the
+reel. The renderer, the studio preview and the downloaded ASS all resolve the
+same per-clip style, so restyling one clip cannot leave the others behind.
 
 Pages are grouped to a reading-speed limit (19 cps), a two-line budget and a
 minimum on-screen time: a page that would flash for one frame is merged into its
 neighbour or given silence to sit in, never shown for 0.2 s and left there. The
-editor shows every page's words and every warning, which is what
-`docs/ui-captions.png` is (a caption page is not a sentence and the UI does not
-pretend otherwise).
+editor shows every page's words and every warning; a caption page is not a
+sentence and the UI does not pretend otherwise.
 
 Framing has three modes:
 
@@ -316,11 +351,18 @@ Framing has three modes:
 
 ### How auto framing decides where to look
 
-No face model is bundled, so the subject is located with two signals measured on
-a 96×54 grid: **frame-to-frame motion per column** (faces, hands, gameplay
-action) and **skin-tone density per column** (keeps a talking head centred while
-it is still). Scores are normalised across the whole clip, so a quiet shot and a
-loud shot are comparable instead of each renormalising to fill the range.
+No face model ships by default, so the subject is located with two signals
+measured on a 96×54 grid: **frame-to-frame motion per column** (faces, hands,
+gameplay action) and **skin-tone density per column** (keeps a talking head
+centred while it is still). Scores are normalised across the whole clip, so a
+quiet shot and a loud shot are comparable instead of each renormalising to fill
+the range.
+
+If you point `framing.face_model` at a YuNet ONNX file and have OpenCV
+installed, an optional pass tracks faces per shot instead;
+`GET /api/framing/status` reports which path is active and why. Neither path
+does speaker diarization, so a two-person wide shot can still follow activity
+rather than the person talking.
 
 The output is a **virtual camera**: one crop centre per shot, panned linearly
 between shots, emitted as a piecewise-linear expression that ffmpeg evaluates per
@@ -352,8 +394,6 @@ test encode at startup and is used only if it actually succeeds. This machine ha
 `h264_nvenc` compiled into ffmpeg but no NVIDIA driver, so the probe correctly
 falls through to `libx264`. Rendering a 16 s clip takes ~7 s here.
 
-![Render panel with auto framing and trim](docs/ui-render-auto.png)
-
 Better to fail loudly than ship a file with no captions: ffmpeg's stderr is
 captured and surfaced in the UI, and a relative data directory is resolved to an
 absolute path before the renderer `chdir`s into its work folder.
@@ -377,8 +417,6 @@ somebody will want to change, the handoff is a bundle:
 Four formats because no single one is accepted everywhere, and one `ClipSpec`
 behind all four. Media is **referenced by absolute path, never copied**: a
 two-hour VOD inside a zip is a mail attachment nobody can send.
-
-![Export panel](docs/ui-export.png)
 
 The part that matters is the test called `test_every_format_agrees_on_the_timeline`.
 Three backends derive the same clip's timing independently — ffmpeg's ASS events,

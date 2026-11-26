@@ -103,3 +103,34 @@ def test_whisper_command_enables_vad_flash_attention_and_token_json(tmp_path):
 
 def test_whisper_unavailable_without_model_file():
     assert WhisperCppASR("whisper-cli", "does/not/exist.bin").available() is False
+
+
+def test_whisper_command_carries_language_and_translate(tmp_path):
+    asr = WhisperCppASR("whisper-cli", "model.bin", "", "hi", 4, True)
+    cmd = asr.build_command(tmp_path / "a.wav", tmp_path / "asr")
+    assert cmd[cmd.index("-l") + 1] == "hi"
+    assert "-tr" in cmd
+
+    plain = WhisperCppASR("whisper-cli", "model.bin")
+    assert "-tr" not in plain.build_command(tmp_path / "a.wav", tmp_path / "asr")
+    assert "-l" not in plain.build_command(tmp_path / "a.wav", tmp_path / "asr")
+
+
+def test_transcript_cache_is_language_and_mode_specific(tmp_path, monkeypatch):
+    from clipper import service
+    from clipper.domain import SourceInfo
+
+    monkeypatch.setattr(service.SETTINGS, "artifacts_dir", lambda: tmp_path, raising=False)
+    source = SourceInfo(
+        id="s1", name="s", path=str(tmp_path / "s.mp4"), duration=60.0, size_bytes=1
+    )
+    english = service.transcript_cache_path(source, "en", False, None, "whisper.cpp")
+    hindi = service.transcript_cache_path(source, "hi", False, None, "whisper.cpp")
+    translated = service.transcript_cache_path(source, "hi", True, None, "whisper.cpp")
+    stub = service.transcript_cache_path(source, "en", False, None, "stub")
+    assert len({english.name, hindi.name, translated.name}) == 3
+    assert ".hi." in hindi.name and ".tr." in translated.name
+    # The engine is part of the key: a forced stub run must not read the real
+    # transcript, and a real run must not read the stub's synthetic words.
+    assert stub.name != english.name
+    assert ".stub." in stub.name

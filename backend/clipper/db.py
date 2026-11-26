@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS analyses (
     payload TEXT NOT NULL,
     asr_backend TEXT NOT NULL,
     llm_backend TEXT NOT NULL,
+    clip_count INTEGER NOT NULL DEFAULT 0,
+    reel_quality REAL NOT NULL DEFAULT 0,
     created_at REAL NOT NULL
 );
 
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS decisions (
     features TEXT NOT NULL DEFAULT '{}',
     signals TEXT NOT NULL DEFAULT '{}',
     model_version TEXT NOT NULL DEFAULT '',
+    policy_version TEXT NOT NULL DEFAULT '',
     prompt_version TEXT NOT NULL DEFAULT 'v1',
     created_at REAL NOT NULL
 );
@@ -67,10 +70,180 @@ CREATE TABLE IF NOT EXISTS hook_edits (
     created_at REAL NOT NULL
 );
 
+-- Per-clip manual edits live here instead of being written back into the whole
+-- analysis payload: a caption tweak on a two-hour VOD should not re-serialise
+-- several megabytes of word timings.
+CREATE TABLE IF NOT EXISTS clip_edits (
+    source_id TEXT NOT NULL,
+    clip_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (source_id, clip_id, kind)
+);
+
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at REAL NOT NULL
+);
+
+-- ---------------------------------------------------------------------------
+-- Publishing and personal-performance tables. Additive only: existing
+-- databases keep working, and every table is created on first launch.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    handle TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    scopes TEXT NOT NULL DEFAULT '[]',
+    capabilities TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'connected',
+    token_ref TEXT NOT NULL DEFAULT '',
+    client_ref TEXT NOT NULL DEFAULT '',
+    token_expires_at REAL NOT NULL DEFAULT 0,
+    last_sync_at REAL NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(platform, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_accounts_platform ON accounts(platform);
+
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    captured_at REAL NOT NULL,
+    followers INTEGER,
+    total_views INTEGER,
+    profile_views INTEGER,
+    payload TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_account_snapshots_account ON account_snapshots(account_id, captured_at);
+
+CREATE TABLE IF NOT EXISTS posts (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    platform_post_id TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
+    published_at REAL NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT '',
+    caption TEXT NOT NULL DEFAULT '',
+    hashtags TEXT NOT NULL DEFAULT '[]',
+    duration_s REAL NOT NULL DEFAULT 0,
+    media_path TEXT NOT NULL DEFAULT '',
+    clip_id TEXT NOT NULL DEFAULT '',
+    source_id TEXT NOT NULL DEFAULT '',
+    render_id TEXT NOT NULL DEFAULT '',
+    policy_version TEXT NOT NULL DEFAULT '',
+    market_version TEXT NOT NULL DEFAULT '',
+    origin TEXT NOT NULL DEFAULT 'app',
+    visibility TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'published',
+    features TEXT NOT NULL DEFAULT '{}',
+    feature_coverage TEXT NOT NULL DEFAULT 'full',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_posts_account ON posts(account_id, published_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_posts_platform
+    ON posts(account_id, platform_post_id) WHERE platform_post_id <> '';
+
+CREATE TABLE IF NOT EXISTS post_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    captured_at REAL NOT NULL,
+    age_hours REAL NOT NULL DEFAULT 0,
+    views INTEGER,
+    likes INTEGER,
+    comments INTEGER,
+    shares INTEGER,
+    saves INTEGER,
+    watch_time_s REAL,
+    avg_view_duration_s REAL,
+    impressions INTEGER,
+    follows INTEGER,
+    profile_visits INTEGER,
+    link_clicks INTEGER,
+    composite REAL,
+    label INTEGER,
+    payload TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_post_metrics_post ON post_metrics(post_id, captured_at);
+
+CREATE TABLE IF NOT EXISTS publish_jobs (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    source_id TEXT NOT NULL DEFAULT '',
+    clip_id TEXT NOT NULL DEFAULT '',
+    media_path TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    idempotency_key TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',
+    stage TEXT NOT NULL DEFAULT '',
+    progress REAL NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    next_attempt_at REAL NOT NULL DEFAULT 0,
+    platform_post_id TEXT NOT NULL DEFAULT '',
+    post_url TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    error_code TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_publish_jobs_status ON publish_jobs(status, next_attempt_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_publish_jobs_idem
+    ON publish_jobs(idempotency_key) WHERE idempotency_key <> '';
+
+CREATE TABLE IF NOT EXISTS personal_models (
+    version TEXT PRIMARY KEY,
+    created_at REAL NOT NULL,
+    payload TEXT NOT NULL,
+    metrics TEXT NOT NULL DEFAULT '{}',
+    active INTEGER NOT NULL DEFAULT 0,
+    data_window TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS suggestions (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL DEFAULT '',
+    clip_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    why TEXT NOT NULL DEFAULT '',
+    evidence TEXT NOT NULL DEFAULT '[]',
+    fix TEXT NOT NULL DEFAULT '',
+    auto_fixable INTEGER NOT NULL DEFAULT 0,
+    action TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_clip ON suggestions(source_id, clip_id, status);
+
+CREATE TABLE IF NOT EXISTS experiments (
+    id TEXT PRIMARY KEY,
+    clip_id TEXT NOT NULL,
+    variant TEXT NOT NULL,
+    hypothesis TEXT NOT NULL DEFAULT '',
+    post_id TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS policy_versions (
+    version TEXT PRIMARY KEY,
+    created_at REAL NOT NULL,
+    payload TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -103,6 +276,38 @@ def init(db_path: Path | None = None) -> None:
             conn.execute("ALTER TABLE sources ADD COLUMN origin_url TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        try:
+            conn.execute("ALTER TABLE decisions ADD COLUMN policy_version TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        # The source list reads these instead of parsing every stored payload.
+        # A database that predates them is backfilled once, here.
+        added_summary = False
+        try:
+            conn.execute("ALTER TABLE analyses ADD COLUMN clip_count INTEGER NOT NULL DEFAULT 0")
+            added_summary = True
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE analyses ADD COLUMN reel_quality REAL NOT NULL DEFAULT 0")
+            added_summary = True
+        except sqlite3.OperationalError:
+            pass
+        if added_summary:
+            rows = conn.execute("SELECT source_id, payload FROM analyses").fetchall()
+            for row in rows:
+                try:
+                    stored = AnalysisResult.model_validate_json(row["payload"])
+                except ValueError:
+                    continue
+                conn.execute(
+                    "UPDATE analyses SET clip_count=?, reel_quality=? WHERE source_id=?",
+                    (
+                        sum(1 for c in stored.candidates if c.rank),
+                        float(stored.reel_quality),
+                        row["source_id"],
+                    ),
+                )
 
 
 def upsert_source(info: SourceInfo) -> SourceInfo:
@@ -156,30 +361,154 @@ def save_analysis(result: AnalysisResult) -> None:
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO analyses (source_id, payload, asr_backend, llm_backend, created_at)
-            VALUES (?,?,?,?,?)
+            INSERT INTO analyses
+                (source_id, payload, asr_backend, llm_backend, clip_count, reel_quality, created_at)
+            VALUES (?,?,?,?,?,?,?)
             ON CONFLICT(source_id) DO UPDATE SET
                 payload=excluded.payload, asr_backend=excluded.asr_backend,
-                llm_backend=excluded.llm_backend, created_at=excluded.created_at
+                llm_backend=excluded.llm_backend, clip_count=excluded.clip_count,
+                reel_quality=excluded.reel_quality, created_at=excluded.created_at
             """,
             (
                 result.source.id,
                 result.model_dump_json(),
                 result.asr_backend,
                 result.llm_backend,
+                sum(1 for c in result.candidates if c.rank),
+                float(result.reel_quality),
                 time.time(),
             ),
         )
+    _ANALYSIS_CACHE.pop(result.source.id, None)
+
+
+# Validating a multi-megabyte payload costs more than the query that fetched it,
+# and one request can ask for the same analysis several times (find_candidate,
+# captions, trim). Keyed on the row's created_at so an analysis run invalidates
+# it without any bookkeeping.
+_ANALYSIS_CACHE: dict[str, tuple[float, AnalysisResult]] = {}
+_MAX_CACHED_ANALYSES = 4
 
 
 def get_analysis(source_id: str) -> AnalysisResult | None:
     with connect() as conn:
         row = conn.execute(
-            "SELECT payload FROM analyses WHERE source_id=?", (source_id,)
+            "SELECT payload, created_at FROM analyses WHERE source_id=?", (source_id,)
         ).fetchone()
     if row is None:
+        _ANALYSIS_CACHE.pop(source_id, None)
         return None
-    return AnalysisResult.model_validate_json(row["payload"])
+    stamp = float(row["created_at"])
+    cached = _ANALYSIS_CACHE.get(source_id)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    result = AnalysisResult.model_validate_json(row["payload"])
+    _apply_clip_edits(result)
+    if len(_ANALYSIS_CACHE) >= _MAX_CACHED_ANALYSES and source_id not in _ANALYSIS_CACHE:
+        _ANALYSIS_CACHE.clear()
+    _ANALYSIS_CACHE[source_id] = (stamp, result)
+    return result
+
+
+def save_clip_edit(source_id: str, clip_id: str, kind: str, payload: dict) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO clip_edits (source_id, clip_id, kind, payload, updated_at)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(source_id, clip_id, kind) DO UPDATE SET
+                payload=excluded.payload, updated_at=excluded.updated_at
+            """,
+            (source_id, clip_id, kind, json.dumps(payload), time.time()),
+        )
+    _ANALYSIS_CACHE.pop(source_id, None)
+
+
+def clear_clip_edits(source_id: str, clip_id: str | None = None, kind: str | None = None) -> None:
+    query = "DELETE FROM clip_edits WHERE source_id=?"
+    args: list[object] = [source_id]
+    if clip_id is not None:
+        query += " AND clip_id=?"
+        args.append(clip_id)
+    if kind is not None:
+        query += " AND kind=?"
+        args.append(kind)
+    with connect() as conn:
+        conn.execute(query, tuple(args))
+    _ANALYSIS_CACHE.pop(source_id, None)
+
+
+def _apply_clip_edits(analysis: AnalysisResult) -> None:
+    """Fold stored per-clip edits onto a freshly parsed analysis."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT clip_id, kind, payload FROM clip_edits WHERE source_id=?",
+            (analysis.source.id,),
+        ).fetchall()
+    if not rows:
+        return
+    candidates = {clip.id: clip for clip in analysis.candidates}
+    for row in rows:
+        candidate = candidates.get(row["clip_id"])
+        if candidate is None:
+            continue
+        try:
+            payload = json.loads(row["payload"])
+        except ValueError:
+            continue
+        if row["kind"] == "captions":
+            pages = payload.get("pages")
+            if isinstance(pages, list):
+                candidate.caption_pages = pages
+        elif row["kind"] == "hook":
+            hook = payload.get("hook")
+            if isinstance(hook, str) and candidate.llm is not None:
+                candidate.llm = candidate.llm.model_copy(update={"hook": hook})
+        elif row["kind"] == "caption_style":
+            overrides = payload.get("overrides")
+            if isinstance(overrides, dict):
+                # New shape keeps the chosen preset with the overrides; an older
+                # row has only the flat override dict and still loads.
+                stored = {"overrides": dict(overrides)}
+                if payload.get("preset"):
+                    stored["preset"] = str(payload["preset"])
+                candidate.caption_style = stored
+            elif payload.get("preset"):
+                candidate.caption_style = {"preset": str(payload["preset"])}
+            else:
+                candidate.caption_style = dict(payload)
+
+
+def list_sources_with_stats() -> list[dict]:
+    """The source rail: one query, no payload parsing."""
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT s.*, a.source_id AS analyzed_id,
+                   COALESCE(a.clip_count, 0) AS clip_count,
+                   COALESCE(a.reel_quality, 0) AS reel_quality
+            FROM sources s
+            LEFT JOIN analyses a ON a.source_id = s.id
+            ORDER BY s.created_at DESC
+            """
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        info = SourceInfo(
+            id=r["id"], name=r["name"], path=r["path"], duration=r["duration"],
+            width=r["width"], height=r["height"], fps=r["fps"],
+            has_audio=bool(r["has_audio"]), size_bytes=r["size_bytes"],
+            origin_url=r["origin_url"] if "origin_url" in r.keys() else "",
+        )
+        out.append(
+            {
+                **info.model_dump(),
+                "analyzed": r["analyzed_id"] is not None,
+                "clip_count": int(r["clip_count"] or 0),
+                "reel_quality": float(r["reel_quality"] or 0.0),
+            }
+        )
+    return out
 
 
 def has_analysis(source_id: str) -> bool:
@@ -198,13 +527,16 @@ def find_candidate(source_id: str, candidate_id: str) -> ClipCandidate | None:
 
 
 def record_decision(candidate: ClipCandidate, action: str, reason: str = "") -> None:
+    from .policy import active as active_policy
+
     with connect() as conn:
         conn.execute(
             """
             INSERT INTO decisions
                 (candidate_id, source_id, action, reason, hook, text, fused, final,
-                 llm_score, llm, features, signals, model_version, prompt_version, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 llm_score, llm, features, signals, model_version, policy_version,
+                 prompt_version, created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 candidate.id,
@@ -220,6 +552,7 @@ def record_decision(candidate: ClipCandidate, action: str, reason: str = "") -> 
                 json.dumps(candidate.features.model_dump() if candidate.features else {}),
                 json.dumps(candidate.signals),
                 (candidate.llm.provider if candidate.llm else ""),
+                active_policy().version,
                 "v1",
                 time.time(),
             ),

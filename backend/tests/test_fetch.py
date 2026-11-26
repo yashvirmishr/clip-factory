@@ -123,6 +123,86 @@ def test_fetch_uses_a_single_item_from_a_playlist(tmp_path, monkeypatch):
     assert result.video_id == "abc123"
 
 
+def _fake_metadata(tmp_path, tracks: bool = True):
+    class FakeYDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=False):
+            assert download is False
+            info = {
+                "id": "abc123",
+                "title": "A stream",
+                "duration": 90.0,
+                "channel": "Someone",
+                "thumbnail": "https://img.example/x.jpg",
+                "extractor_key": "Youtube",
+            }
+            if tracks:
+                info["subtitles"] = {"en": [{"ext": "vtt"}]}
+                info["automatic_captions"] = {"en": [{"ext": "vtt"}], "hi": [{"ext": "vtt"}]}
+            return info
+
+        def download(self, urls):
+            (tmp_path / "abc123.hi.vtt").write_text(
+                "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nनमस्ते\n", "utf-8"
+            )
+
+    class _FakeDownloadError(Exception):
+        pass
+
+    return types.SimpleNamespace(
+        YoutubeDL=FakeYDL,
+        version=types.SimpleNamespace(__version__="9999.1.1"),
+        utils=types.SimpleNamespace(DownloadError=_FakeDownloadError),
+    )
+
+
+def test_inspect_lists_tracks_and_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "yt_dlp", _fake_metadata(tmp_path))
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+
+    preview = fetch.inspect("https://youtu.be/abc")
+    assert preview.title == "A stream"
+    assert preview.channel == "Someone"
+    assert preview.duration == 90.0
+    tracks = {track["lang"]: track for track in preview.tracks}
+    # A manual track beats the auto-generated one for the same language.
+    assert tracks["en"]["auto"] is False
+    assert tracks["hi"]["auto"] is True
+    assert tracks["hi"]["label"] == "Hindi"
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_video_without_captions_still_previews(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "yt_dlp", _fake_metadata(tmp_path, tracks=False))
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+    assert fetch.inspect("https://youtu.be/abc").tracks == []
+
+
+def test_fetch_subtitles_keeps_the_language_in_the_name(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "yt_dlp", _fake_metadata(tmp_path))
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+
+    path = fetch.fetch_subtitles("https://youtu.be/abc", "hi", automatic=True, out_dir=tmp_path)
+    assert path.name == "hi.vtt"
+    assert path.exists()
+    assert "-->" in path.read_text("utf-8")
+
+
+def test_inspect_without_yt_dlp_explains_itself(monkeypatch):
+    monkeypatch.setattr(fetch, "available", lambda: "")
+    with pytest.raises(fetch.FetchError) as error:
+        fetch.inspect("https://youtu.be/abc")
+    assert "pip install yt-dlp" in str(error.value)
+
+
 def test_a_url_with_no_file_on_disk_is_an_error(tmp_path, monkeypatch):
     module = _fake_ytdlp(tmp_path)
     inner = module.YoutubeDL.extract_info

@@ -3,6 +3,7 @@ import { formatTime, formatTimecode } from '../api'
 import type { Clip, Peaks, Verdict } from '../types'
 import { mix, withAlpha } from '../theme/color'
 import { Icon } from '../workspace/Icon'
+import { usePlayhead } from '../workspace/playhead'
 import { IconButton } from '../workspace/ui'
 
 interface TimelineProps {
@@ -10,7 +11,6 @@ interface TimelineProps {
   selectedId: string | null
   peaks: Peaks | null
   duration: number
-  playhead: number
   fps: number
   verdicts: Record<string, Verdict>
   hasSource: boolean
@@ -33,7 +33,6 @@ export function Timeline({
   selectedId,
   peaks,
   duration,
-  playhead,
   fps,
   verdicts,
   hasSource,
@@ -42,10 +41,15 @@ export function Timeline({
   onOpenMonitor,
   themeId,
 }: TimelineProps) {
+  const playhead = usePlayhead()
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const scrubbing = useRef(false)
+  // A drag emits pointer moves faster than the browser can paint; one seek per
+  // animation frame is the most the <video> element can honour anyway.
+  const pendingSeek = useRef<number | null>(null)
+  const seekFrame = useRef<number | null>(null)
   const [viewWidth, setViewWidth] = useState(720)
   const [zoom, setZoom] = useState(1)
 
@@ -92,11 +96,21 @@ export function Timeline({
     const canvas = canvasRef.current
     if (!canvas) return
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    canvas.width = Math.floor(contentWidth * dpr)
-    canvas.height = Math.floor(canvasHeight * dpr)
+    // A long source at 8x zoom asks for a canvas wider than the browser will
+    // allocate; clamp the backing store and scale the drawing to match.
+    const maxBacking = 8192
+    canvas.width = Math.max(1, Math.min(maxBacking, Math.floor(contentWidth * dpr)))
+    canvas.height = Math.max(1, Math.min(maxBacking, Math.floor(canvasHeight * dpr)))
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.setTransform(
+      canvas.width / Math.max(1, contentWidth),
+      0,
+      0,
+      canvas.height / Math.max(1, canvasHeight),
+      0,
+      0,
+    )
     ctx.clearRect(0, 0, contentWidth, canvasHeight)
 
     const styles = getComputedStyle(canvas)
@@ -174,12 +188,33 @@ export function Timeline({
     ctx.stroke()
   }, [peaks, clips, contentWidth, canvasHeight, pps, span, xFor, themeId])
 
+  const scheduleSeek = useCallback(
+    (seconds: number) => {
+      pendingSeek.current = Math.max(0, Math.min(span, seconds))
+      if (seekFrame.current !== null) return
+      seekFrame.current = window.requestAnimationFrame(() => {
+        seekFrame.current = null
+        const next = pendingSeek.current
+        pendingSeek.current = null
+        if (next !== null) onSeek(next)
+      })
+    },
+    [onSeek, span],
+  )
+
+  useEffect(
+    () => () => {
+      if (seekFrame.current !== null) window.cancelAnimationFrame(seekFrame.current)
+    },
+    [],
+  )
+
   const seekFromPointer = (clientX: number) => {
     const node = contentRef.current
     if (!node) return
     const rect = node.getBoundingClientRect()
     const seconds = (clientX - rect.left - PAD) / pps
-    onSeek(Math.max(0, Math.min(span, seconds)))
+    scheduleSeek(seconds)
   }
 
   const selected = clips.find((clip) => clip.id === selectedId) ?? null
@@ -233,10 +268,10 @@ export function Timeline({
           <span className="work-empty-mark" aria-hidden="true">
             <Icon name="timeline" size={22} />
           </span>
-          <h2>{hasSource ? 'No candidates to lay out.' : 'No tape loaded.'}</h2>
+          <h2>{hasSource ? 'No clips to lay out.' : 'No tape loaded.'}</h2>
           <p>
             {hasSource
-              ? 'Analyze the source to place ranked candidates and their waveform on the timeline.'
+              ? 'Analyze the source to place ranked clips and their waveform on the timeline.'
               : 'Import a recording in the project panel to build a timeline.'}
           </p>
         </div>
@@ -328,7 +363,11 @@ export function Timeline({
                   )
                 })}
               </div>
-              <div className="timeline-playhead" style={{ left: xFor(playhead) }} aria-hidden="true">
+              <div
+                className="timeline-playhead"
+                style={{ transform: `translateX(${xFor(playhead)}px)` }}
+                aria-hidden="true"
+              >
                 <span />
               </div>
             </div>

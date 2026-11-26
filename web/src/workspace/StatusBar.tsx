@@ -1,5 +1,7 @@
+import { memo } from 'react'
 import { formatTime } from '../api'
 import { Icon } from './Icon'
+import { usePlayhead } from './playhead'
 import { IconButton } from './ui'
 
 interface StatusBarProps {
@@ -8,7 +10,6 @@ interface StatusBarProps {
   statusDetail?: string
   progress: number | null
   sourceName: string | null
-  playhead: number
   duration: number
   clipLabel: string | null
   leftOpen: boolean
@@ -22,13 +23,12 @@ interface StatusBarProps {
   onOpenThemes: () => void
 }
 
-export function StatusBar({
+export const StatusBar = memo(function StatusBar({
   busy,
   statusLabel,
   statusDetail,
   progress,
   sourceName,
-  playhead,
   duration,
   clipLabel,
   leftOpen,
@@ -41,6 +41,7 @@ export function StatusBar({
   themeSwatch,
   onOpenThemes,
 }: StatusBarProps) {
+  const playhead = usePlayhead()
   return (
     <footer className="statusbar">
       <div className="status-left">
@@ -114,4 +115,4 @@ export function StatusBar({
       </div>
     </footer>
   )
-}
+})

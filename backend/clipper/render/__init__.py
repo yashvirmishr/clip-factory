@@ -8,7 +8,7 @@ from pathlib import Path
 from ..config import SETTINGS
 from ..domain import ClipCandidate, SourceInfo, stable_id
 from ..pipeline.caption import pages_for
-from .ass import get_preset, style_summary, write_ass
+from .ass import resolve_style, style_summary, write_ass
 from .ffmpeg import FRAMINGS, RenderSpec, build_args, choose_encoder, ffprobe_duration
 
 
@@ -35,7 +35,10 @@ def render_clip(
 
     if framing not in FRAMINGS:
         framing = "blur"
-    style = get_preset(preset_key)
+    # A clip's saved preset and overrides win over the caller's default, so two
+    # clips in one reel can look different and the studio preview, the burn and
+    # the ASS download cannot disagree about the same clip.
+    style = resolve_style(candidate.caption_style, preset_key)
 
     # Resolve "auto" before naming the file: a failed sampling pass falls back to
     # a centred crop, and the filename must not claim otherwise.
@@ -53,7 +56,13 @@ def render_clip(
 
     # Captions are part of the picture, so they are part of the cache key. A
     # manual edit must never come back as a cached render of the old words.
-    digest = stable_id(*(page.model_dump_json() for page in pages))
+    # The style is part of the picture too: restyling must not return the old
+    # pixels from cache.
+    digest = stable_id(
+        *(page.model_dump_json() for page in pages),
+        f"{style.key}:{style.font}:{style.size}:{style.primary}:{style.secondary}"
+        f":{style.outline_width}:{style.margin_v}:{style.uppercase}:{style.karaoke}",
+    )
     out = renders_dir() / f"{candidate.id}-{style.key}-{framing}-{digest}.mp4"
 
     if out.exists() and out.stat().st_size > 10_000 and not force:
@@ -61,6 +70,9 @@ def render_clip(
             "cached": True,
             "url": f"/api/renders/{out.name}",
             "filename": out.name,
+            # The local path is what publishing uploads; the browser never needs
+            # it for playback, but it is the only identifier the POST accepts.
+            "path": str(out.resolve()),
             "duration": round(ffprobe_duration(out), 2),
             "style": style_summary(style),
             "framing": framing,
@@ -117,6 +129,7 @@ def render_clip(
         "cached": False,
         "url": f"/api/renders/{out.name}",
         "filename": out.name,
+        "path": str(out.resolve()),
         "duration": round(duration, 2),
         "bytes": out.stat().st_size,
         "pages": len(pages),

@@ -104,15 +104,26 @@ def build_filter_graph(spec: RenderSpec) -> str:
             f"[0:v]crop={spec.crop_w}:ih:x='{x}':y=0,"
             f"scale={w}:{h},{ass}[v]"
         )
+    if spec.framing == "auto":
+        # No plan (the media could not be sampled): a still centre crop. "auto"
+        # promised a crop, so falling through to the blur pad would silently
+        # deliver a different look than the one that was asked for.
+        return (
+            f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
+            f"crop={w}:{h},{ass}[v]"
+        )
     if spec.framing == "crop":
         return (
             f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
             f"crop={w}:{h},{ass}[v]"
         )
+    # Blur a quarter-size copy and scale it back up: the result is visually the
+    # same at this radius, and the gaussian runs on 1/16th of the pixels.
+    sigma = max(0.5, spec.blur_sigma / 4.0)
     return (
         f"[0:v]split=2[bg][fg];"
         f"[bg]scale={w}:{h}:force_original_aspect_ratio=increase,"
-        f"crop={w}:{h},gblur=sigma={spec.blur_sigma}[bgb];"
+        f"crop={w}:{h},scale=iw/4:ih/4,gblur=sigma={sigma:g},scale={w}:{h}[bgb];"
         f"[fg]scale={w}:-2:force_original_aspect_ratio=decrease[fgs];"
         f"[bgb][fgs]overlay=(W-w)/2:(H-h)/2,{ass}[v]"
     )

@@ -1,12 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { api, formatTimecode } from '../api'
 import type { Captions, Clip, Verdict } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Tabs } from '../workspace/Tabs'
+import { usePlayhead } from '../workspace/playhead'
 import { Spinner } from '../workspace/ui'
 import { GateWarnings, ScoreBars, TruthList } from './bits'
 import { ExportPanel } from './ExportPanel'
+import { PublishPanel, type RenderedClip } from './PublishPanel'
 import { RenderPanel, type RenderRequest } from './RenderPanel'
+import { SubtitleStudio } from './SubtitleStudio'
 import { TrimPanel } from './TrimPanel'
 
 export type InspectorTab = 'properties' | 'captions' | 'output'
@@ -17,7 +20,6 @@ interface InspectorProps {
   captions: Captions | null
   captionsLoading: boolean
   verdict: Verdict | undefined
-  playhead: number
   fps: number
   tab: InspectorTab
   clipCount: number
@@ -32,13 +34,12 @@ interface InspectorProps {
   onFloat?: () => void
 }
 
-export function Inspector({
+export const Inspector = memo(function Inspector({
   sourceId,
   clip,
   captions,
   captionsLoading,
   verdict,
-  playhead,
   fps,
   tab,
   clipCount,
@@ -52,7 +53,9 @@ export function Inspector({
   onNotify,
   onFloat,
 }: InspectorProps) {
+  const playhead = usePlayhead()
   const [hook, setHook] = useState('')
+  const [rendered, setRendered] = useState<RenderedClip | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const saveRef = useRef<() => Promise<void>>(async () => {})
 
@@ -63,7 +66,7 @@ export function Inspector({
 
   if (!clip) {
     return (
-      <aside className="inspector" aria-label="Clip inspector">
+      <aside className="inspector" aria-label="Clip inspector" data-tour="verdict">
         <header className="panel-chrome">
           <span className="panel-eyebrow">Inspector</span>
           <span className="panel-count">No selection</span>
@@ -75,7 +78,7 @@ export function Inspector({
           <h2>{hasSource ? 'No clip selected.' : 'Nothing to inspect.'}</h2>
           <p>
             {hasSource
-              ? 'Pick a candidate in the reel or a block on the timeline. Its scorecard, hook, captions and output settings live here.'
+              ? 'Pick a clip in the list or a block on the timeline. Its scorecard, hook, captions and output settings live here.'
               : 'Import a source, run the analysis, then select a clip to open its properties.'}
           </p>
         </div>
@@ -106,7 +109,7 @@ export function Inspector({
   saveRef.current = saveHook
 
   return (
-    <aside className="inspector" aria-label="Clip inspector">
+    <aside className="inspector" aria-label="Clip inspector" data-tour="verdict">
       <header className="inspector-head">
         <div className="inspector-id">
           <span className="clip-badge">CLIP {clip.rank ? String(clip.rank).padStart(2, '0') : '—'}</span>
@@ -177,13 +180,13 @@ export function Inspector({
                 role="img"
                 aria-label={`Final score ${score} out of 100`}
               >
-                <span className="num">{String(score).padStart(3, '0')}</span>
+                <span className="num">{score}</span>
               </div>
               <div className="score-hero-copy">
                 <span className="label">Final score</span>
-                <p>{clip.llm?.reason || 'No scoring reason recorded for this candidate.'}</p>
+                <p>{clip.llm?.reason || 'No scoring reason recorded for this clip.'}</p>
                 <div className="chip-row">
-                  <span className="pill" title="Fused signal score">
+                  <span className="pill" title="Score from the found moments">
                     fused <span className="num">{(clip.fused * 100).toFixed(0)}</span>
                   </span>
                   <span className="pill" title="Model score">
@@ -257,7 +260,7 @@ export function Inspector({
             <section className="inspector-section">
               <header className="section-head">
                 <div>
-                  <span className="label">Signals</span>
+                  <span className="label">What it noticed</span>
                   <h3>Why the score moved</h3>
                 </div>
               </header>
@@ -309,7 +312,7 @@ export function Inspector({
             <details className="inspector-section inspector-fold" open={clip.blocked}>
               <summary className="section-head">
                 <div>
-                  <span className="label">Gates</span>
+                  <span className="label">Checks</span>
                   <h3>Blocking rules</h3>
                 </div>
                 <span className="fold-tail">
@@ -340,6 +343,12 @@ export function Inspector({
           </div>
         ) : tab === 'captions' ? (
           <div className="inspector-scroll stack-14">
+            <SubtitleStudio
+              sourceId={sourceId}
+              clipId={clip.id}
+              pages={captions?.pages ?? []}
+              onNotify={onNotify}
+            />
             <div className="caption-stats">
               <div>
                 <span className="label">Pages</span>
@@ -403,15 +412,22 @@ export function Inspector({
             )}
           </div>
         ) : (
-          <div className="inspector-scroll stack-14">
+          <div className="inspector-scroll stack-14" data-tour="render">
             <RenderPanel
               sourceId={sourceId}
               clipId={clip.id}
               rank={clip.rank}
               request={renderRequest}
               onNotify={onNotify}
+              onRendered={setRendered}
             />
-            <ExportPanel sourceId={sourceId} clipCount={clipCount} />
+            <ExportPanel
+              sourceId={sourceId}
+              clipId={clip?.id ?? null}
+              clipCount={clipCount}
+              onNotify={onNotify}
+            />
+            <PublishPanel sourceId={sourceId} clip={clip} rendered={rendered} onNotify={onNotify} />
             <p className="panel-note">
               Rendered masters are cached locally. Handoff timelines reference the original source;
               move the source and the NLE will ask to relink.
@@ -421,4 +437,4 @@ export function Inspector({
       </div>
     </aside>
   )
-}
+})

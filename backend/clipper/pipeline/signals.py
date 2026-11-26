@@ -22,6 +22,7 @@ import numpy as np
 
 from ..config import SignalWeights
 from ..domain import Utterance, WindowFeatures
+from ..lang import script_of, tokenize
 from ..textvec import (
     PROFANITY,
     SECOND_PERSON,
@@ -94,8 +95,10 @@ def window_features(
     analysis: AudioAnalysis | None,
 ) -> WindowFeatures:
     duration = max(0.001, end - start)
-    tokens = text.split()
+    # Unicode tokens: `split()` counts a whole Chinese sentence as one word.
+    tokens = tokenize(text)
     word_count = len(tokens)
+    script = script_of(text)
     probs = np.array(words_probs, dtype=np.float32) if words_probs else np.array([1.0])
     low_conf = float(np.mean(probs < LOW_CONF_THRESHOLD)) if probs.size else 0.0
     coverage = analysis.coverage(start, end) if analysis is not None else 1.0
@@ -103,12 +106,14 @@ def window_features(
         duration=round(duration, 3),
         word_count=word_count,
         words_per_sec=round(word_count / duration, 3),
-        question_count=text.count("?"),
-        exclaim_count=text.count("!"),
-        second_person=count_tokens(text, SECOND_PERSON),
+        # The English lexicons only mean anything for cased Latin text.
+        question_count=text.count("?") + text.count("？"),
+        exclaim_count=text.count("!") + text.count("！"),
+        second_person=count_tokens(text, SECOND_PERSON) if script == "latin" else 0,
         number_count=sum(1 for t in tokens if any(c.isdigit() for c in t)),
-        hook_lexicon_hits=hook_lexicon_hits(text),
-        profanity=count_tokens(text, PROFANITY),
+        hook_lexicon_hits=hook_lexicon_hits(text) if script == "latin" else 0,
+        profanity=count_tokens(text, PROFANITY) if script == "latin" else 0,
+        script=script,
         caps_ratio=round(caps_ratio(text), 4),
         mean_word_prob=round(float(probs.mean()), 4),
         low_conf_ratio=round(low_conf, 4),

@@ -217,3 +217,44 @@ def resolve_scorer(llama_url: str = "") -> Scorer:
         if scorer.available():
             return scorer
     return HeuristicScorer()
+
+
+def probe_runner(base_url: str, timeout: float = 3.0) -> dict:
+    """Check a llama-server address without scoring anything.
+
+    Used by setup ("is the runner I was told about actually up?") and by the
+    scoring row of the readiness check. Never raises: an unreachable runner is
+    an ordinary answer, not an error, because the built-in scorer still works.
+    """
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return {"reachable": False, "models": [], "error": "No address set."}
+    try:
+        response = httpx.get(f"{base}/v1/models", timeout=timeout)
+    except httpx.TimeoutException:
+        return {
+            "reachable": False,
+            "models": [],
+            "error": f"No answer within {timeout:.0f} seconds.",
+        }
+    except httpx.HTTPError:
+        return {
+            "reachable": False,
+            "models": [],
+            "error": "Nothing is listening at that address.",
+        }
+    if response.status_code != 200:
+        return {
+            "reachable": False,
+            "models": [],
+            "error": f"The address answered with status {response.status_code}.",
+        }
+    names: list[str] = []
+    try:
+        for item in response.json().get("data") or []:
+            name = item.get("id")
+            if name:
+                names.append(str(name))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return {"reachable": True, "models": names, "error": ""}

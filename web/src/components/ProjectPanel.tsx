@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { api, formatBytes, formatTime } from '../api'
 import type { Analysis, LearnState, SourceRow } from '../types'
 import { Icon } from '../workspace/Icon'
@@ -33,7 +33,7 @@ function SourceThumb({ source }: { source: SourceRow }) {
       {broken ? <Icon name="film" size={16} /> : null}
       {!broken ? (
         <video
-          src={`${api.mediaUrl(source.id)}#t=4`}
+          src={`${api.mediaUrl(source.id, true)}#t=4`}
           muted
           playsInline
           preload="metadata"
@@ -48,7 +48,7 @@ function SourceThumb({ source }: { source: SourceRow }) {
   )
 }
 
-export function ProjectPanel({
+export const ProjectPanel = memo(function ProjectPanel({
   sources,
   selectedId,
   learn,
@@ -206,6 +206,7 @@ export function ProjectPanel({
 
             <form
               className="ingest"
+              data-tour="ingest"
               onSubmit={(event) => {
                 event.preventDefault()
                 if (ingestPath.trim() && !busy) onIngest()
@@ -244,17 +245,17 @@ export function ProjectPanel({
 
             <section className="insight-card">
               <header>
-                <span className="label">Reel telemetry</span>
+                <span className="label">Clip quality</span>
                 {analysis ? <span className="pill ok">{Math.round(analysis.reel_quality * 100)}% quality</span> : null}
               </header>
               {analysis ? (
                 <dl className="insight-metrics">
                   <div>
-                    <dt>ASR</dt>
+                    <dt>Speech</dt>
                     <dd title={analysis.asr_backend}>{analysis.asr_backend || '—'}</dd>
                   </div>
                   <div>
-                    <dt>Scorer</dt>
+                    <dt>Ranking</dt>
                     <dd title={analysis.llm_backend}>{analysis.llm_backend || '—'}</dd>
                   </div>
                   <div>
@@ -262,12 +263,12 @@ export function ProjectPanel({
                     <dd className="num">{formatTime(analysis.duration_s)}</dd>
                   </div>
                   <div>
-                    <dt>Candidates</dt>
+                    <dt>Clips found</dt>
                     <dd className="num">{analysis.candidates.length}</dd>
                   </div>
                 </dl>
               ) : (
-                <p className="panel-note">Analyze a source to see backend and reel-quality telemetry.</p>
+                <p className="panel-note">Analyze a source to see what read the speech and how the clips ranked.</p>
               )}
             </section>
 
@@ -337,4 +338,4 @@ export function ProjectPanel({
       </footer>
     </aside>
   )
-}
+})

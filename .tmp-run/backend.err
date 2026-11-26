@@ -1,0 +1,11 @@
+2026-11-26 07:14:45 INFO    clipper.logging_setup: logging to C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log (level INFO)
+INFO:     Started server process [19412]
+INFO:     Waiting for application startup.
+2026-11-26 07:14:46 INFO    clipper.api: Clip Factory 0.1.0 starting (pid 19412, data C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check, log C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\logs\clipfactory.log)
+2026-11-26 07:14:46 INFO    clipper.api: database ready at C:\Users\yashv\OneDrive\Desktop\Everything (1)\Everything (1).W\Yashvir\totally random stuff\AI BS\Projects\AiVideoEditor\.tmp-run\cf-check\clipper.sqlite3
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8756 (Press CTRL+C to quit)
+2026-11-26 07:14:46 INFO    clipper.api: hardware encoder ready: h264_amf
+2026-11-26 07:21:43 INFO    clipper.jobs: job 1795648903744-1 (render) queued on the compute lane
+2026-11-26 07:21:43 INFO    clipper.jobs: job 1795648903744-1 (render) started on the compute lane
+2026-11-26 07:21:49 INFO    clipper.jobs: job 1795648903744-1 (render) finished in 5.8s framing=0.7s captions=0.0s render=5.2s

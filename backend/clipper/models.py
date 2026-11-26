@@ -73,6 +73,11 @@ def _tier_rank(tier: str) -> int:
     return {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}.get(tier, 0)
 
 
+def available_gb() -> float:
+    """Free memory right now, after this app's own reserve."""
+    return round(_available_gb(), 2)
+
+
 def _available_gb() -> float:
     """Memory free right now. Falls back to half of total if the probe fails."""
     total, available = hardware.memory_gb()
@@ -234,7 +239,7 @@ def summary() -> dict:
     return {
         "tier": tier,
         "models_dir": str(models_dir()),
-        "available_gb": round(_available_gb(), 2),
+        "available_gb": available_gb(),
         "reserve_gb": SETTINGS.hardware.reserve_ram_gb,
         "models": [item.to_dict() for item in items],
         "active": active(),

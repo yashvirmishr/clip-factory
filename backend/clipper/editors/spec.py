@@ -40,6 +40,8 @@ class ClipSpec:
     source_duration: float = 0.0
     # Auto-framing knots, clip-relative (time, crop-left in source pixels).
     crop: tuple[tuple[float, float], ...] = field(default_factory=tuple)
+    # Per-clip caption style overrides, so a handoff ASS matches the render.
+    caption_style: dict = field(default_factory=dict)
 
     @property
     def duration(self) -> float:
@@ -107,6 +109,7 @@ def spec_for(
         fps=source.fps or 30.0,
         source_duration=round(source.duration, 3),
         crop=crop,
+        caption_style=dict(candidate.caption_style or {}),
     )
 
 

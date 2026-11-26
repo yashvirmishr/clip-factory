@@ -4,7 +4,7 @@ export const silverHalide: ThemeDefinition = {
   id: 'silver-halide',
   name: 'Silver Halide',
   author: 'Clip Factory',
-  description: 'Neutral darkroom greys with a safelight red. Monochrome discipline, one warm signal.',
+  description: 'Neutral darkroom greys with a safelight red. Monochrome discipline, one warm accent.',
   scheme: 'light',
   tags: ["Monochrome", "Darkroom", "Film"],
   seeds: {

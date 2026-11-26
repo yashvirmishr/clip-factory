@@ -49,7 +49,7 @@ export function GateWarnings({ gates }: { gates: GateResult[] }) {
     return (
       <p className="panel-note panel-note-ok">
         <Icon name="check" size={13} />
-        Every gate passed. Nothing flagged.
+        Every check passed. Nothing flagged.
       </p>
     )
   }
@@ -59,10 +59,12 @@ export function GateWarnings({ gates }: { gates: GateResult[] }) {
         <div className="gate" key={gate.id} data-severity={gate.severity}>
           <Icon name="alert" size={13} />
           <div>
-            <b>{gate.id.replace(/_/g, ' ')}</b>
+            <b>{gate.label || gate.id.replace(/_/g, ' ')}</b>
             {gate.detail ? <span>{gate.detail}</span> : null}
           </div>
-          <span className="gate-severity">{gate.severity}</span>
+          <span className="gate-severity">
+            {gate.severity === 'block' ? 'Stops the clip' : 'Flagged'}
+          </span>
         </div>
       ))}
     </div>
