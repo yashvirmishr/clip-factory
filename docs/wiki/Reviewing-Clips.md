@@ -20,7 +20,7 @@ You can close the tab while this runs. The job is server-side; reopen the source
 
 ## The reel
 
-The Reel is the main reviewing surface.
+The **Clips** tab is the main reviewing surface; the ranked set it draws is the reel.
 
 - **Filters:** All, Approved, Rejected, Unreviewed. The counts are live.
 - **Search:** filters by hook text, transcript or the judge's reason.
@@ -73,7 +73,7 @@ The scorecard is the visible answer to "is this clip broken?". It has eight chec
 7. ASR confidence is sufficient
 8. Hook is readable
 
-Each check shows pass or fail and the reason. **Reel quality** in Insights is the average scorecard pass ratio across the ranked clips. It measures structural cleanliness, not how entertaining the reel is.
+Each check shows pass or fail and the reason. **Clip quality** in Insights is the average scorecard pass ratio across the ranked clips. It measures structural cleanliness, not how entertaining the reel is.
 
 Gates are the same checks used during selection. A clip that fails a gate can still be present in the reel if it was the best available candidate; the failure is shown, not hidden. Selection prefers clips that pass.
 
@@ -109,6 +109,12 @@ Trimming keeps the clip inside its source and re-derives caption pages and gates
 
 The **Captions** tab is a read-only proof of the page layout: time range, lines, characters per second, line budget and warnings. It is deliberately read-only in the interface; the API and stored caption pages are the source of truth. See [Rendering and Export](Rendering-and-Export.md) for how those pages become burned-in text.
 
+### Coach
+
+The **Coach** tab proposes fixes and shows the evidence for each one: trim dead air at the start, tighten or rewrite a slow hook, cut a mid-sentence ending, shorten an overlong clip, add a payoff, raise speech density, recheck a low-confidence transcript, or thin out crowded captions.
+
+**Preview** shows the before and after without touching the clip. **Apply** makes the change for real: trims go through the same path as the Trim control, hook rewrites are saved as an ordinary hook edit. Both keep the old value, so **Undo** restores it; **Dismiss** hides a suggestion without changing anything. The coach never renders or publishes. See [Learning from your posts](Learning.md#coaching-suggestions) for the full list.
+
 ## The monitor
 
 The Monitor is the colour-critical view. Use the **Hook**, **Captions** and **No overlay** buttons to switch overlays, and the switches for loop and 9:16 guides.
@@ -138,6 +144,8 @@ It is a reading surface, not a multi-track editor. It does not draw scene cuts, 
 Every verdict is appended to a local decision log. The Insights panel reports progress toward the 40-decision threshold, the label balance and the re-ranker gate. Once there is enough data, Clip Factory trains a personal re-ranker, keeps a held-out check, and uses the result only if it beats the base ordering by the required margin. The same log produces a style profile and few-shot memory for future analysis.
 
 Nothing is uploaded. The log lives in the local data directory and can be exported as JSONL from Insights.
+
+That learner reads your approvals. A second, separately gated model reads your audience: posts published from connected accounts are synced with their engagement. It is documented in [Learning from your posts](Learning.md), together with the weekly schedule that retrains it.
 
 ---
 

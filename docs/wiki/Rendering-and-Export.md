@@ -9,11 +9,11 @@ Rendering makes the vertical master inside Clip Factory. Export hands the reel t
 3. Review the frame in the Monitor with the 9:16 guides on.
 4. Confirm the source is on a disk that will still be connected while ffmpeg runs.
 
-Only one background job runs at a time. Rendering is queued behind an analysis and blocks another render until it finishes.
+Only one background job runs at a time. Rendering is queued behind an analysis and blocks another render until it finishes; an upload uses the same worker, so a publish in front of a render delays it too.
 
 ## The render
 
-Open **Output** in the Inspector. The render section shows the delivery size, a caption preset, a framing strategy and the encoder once a render exists.
+Open **Output** in the Inspector. The render section shows the delivery size, a caption preset, a framing strategy and the encoder once a render exists. Once a file is rendered, the same tab carries the **Publish** section for sending it to YouTube or X; see [Publishing](Publishing.md).
 
 ### Caption presets
 
@@ -41,7 +41,7 @@ Caption pages themselves are grouped elsewhere: at most four words, 22 character
 | **Blur pad** | Fits the whole frame inside the vertical canvas over a blurred fill. Nothing is cropped. |
 | **Crop** | Centre-crops to fill the canvas. No tracking. |
 
-Auto works in two tiers. By default it measures motion and skin density on a small grid, then pans linearly between shot centres. Install the face tier (`pip install -r requirements-optional.txt` and **Face tracking (YuNet)** in Models; an explicit `framing.face_model` also works) and it instead tracks faces at 4 fps, picks the largest speaking face in each shot and follows it — still one position per shot, smoothed by a deadband so a wobbling face does not become a handheld camera. When faces cannot be tracked because the package or model is missing, the motion tracker answers, and the render panel says which one is in use through **Framing status**. Nothing in the default path imports OpenCV.
+Auto works in two tiers. By default it measures motion and skin density on a small grid, then pans linearly between shot centres. Install the face tier (`pip install -r requirements-optional.txt` and **Face tracking (YuNet)** in Models; an explicit `framing.face_model` also works) and it instead tracks faces at 4 fps, picks the largest speaking face in each shot and follows it — still one position per shot, smoothed by a deadband so a wobbling face does not become a handheld camera. When faces cannot be tracked because the package or model is missing, the motion tracker answers, and the render panel says which one is in use; **Inspect framing** draws the planned crop before you spend a render. Nothing in the default path imports OpenCV.
 
 Both tiers are deliberately one decision per shot rather than a per-frame follow, which would wobble on every gesture.
 

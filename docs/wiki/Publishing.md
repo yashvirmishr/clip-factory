@@ -30,7 +30,7 @@ The app asks for `tweet.read`, `tweet.write`, `users.read`, `media.write` and `o
 
 ## Connecting
 
-Open **Project → Accounts**, choose YouTube or X, paste the client ID and secret, and press **Connect**. The consent page opens in a browser tab. Approving it lands on the loopback callback, stores the account and shows a confirmation page. Return to Clip Factory; the Accounts tab refreshes when the window regains focus.
+Open **Project → Accounts**, choose YouTube or X, paste the client ID and secret, and press **Connect**. The tab shows the callback URL with a copy button: it embeds port 8756, so a backend running on another port needs that URL registered with the provider as well. The consent page opens in a browser tab. Approving it lands on the loopback callback, stores the account and shows a confirmation page. Return to Clip Factory; the Accounts tab refreshes when the window regains focus.
 
 The client secret and token bundle are stored in the credential store, not in SQLite or the config file. A code expires after ten minutes. **Disconnect** revokes the token where the provider supports revocation and removes the local account. TikTok and Instagram are listed so the boundary is visible, but their upload adapters are not enabled yet.
 
@@ -44,7 +44,7 @@ The client secret and token bundle are stored in the credential store, not in SQ
 | **Visibility** | YouTube: private, unlisted or public. X: public. Private is the YouTube default on purpose. |
 | **Audience** | YouTube requires a made-for-kids declaration on every upload; the toggle is that declaration. |
 
-**Check limits** validates against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does.
+**Check against YouTube limits** (the button names the platform) validates the draft against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does.
 
 YouTube Shorts are capped at three minutes and must be vertical or square. X accepts a longer file at the API level, but this app caps the draft at 140 seconds so it stays a short. The server, not the browser, is the authority; the UI shows the returned issues.
 
@@ -60,11 +60,15 @@ Uploads are durable jobs in SQLite, so closing the panel does not cancel one. Re
 
 Retryable failures back off up to an hour and are retried up to three times. A scheduler checks due jobs every 20 seconds, so a transient 429 or 503 does not need the app to be restarted. A job interrupted by a crash is returned to `retry` on the next launch with a message saying the app stopped; the finalize step checks with the platform before deciding whether the bytes already landed. The file path is kept, so retrying does not need a re-render.
 
+**Retry** is for a `failed` or `cancelled` upload. A job that is still running cannot be retried, and neither can one that already reached `done`: posting the same file twice means a new render and a new job, so a retry can never duplicate a post.
+
 Only one upload runs at a time, by the same resource governor that serializes analysis and rendering.
+
+A finished upload records the feature vector, signals and judge score the clip carried, so the post can join the performance model once its engagement settles. Posts imported from an existing channel have no such vector and only contribute the per-account baseline. See [Learning from your posts](Learning.md).
 
 ## What is not here
 
-- **No TikTok or Instagram upload.** Their OAuth entries exist, but `POST /api/publish` refuses them with a clear message. Use Export & share for now.
+- **No TikTok or Instagram upload.** Their OAuth entries exist, but `POST /api/publish` refuses them with a clear message. Use the Output tab's **Handoff** section for now.
 - **No scheduling calendar.** A `scheduled_at` field exists and YouTube `publishAt` is passed through, but the UI does not expose a date picker.
 - **No multi-platform posting in one action.** One draft, one account, one upload.
 - **No title/hook generation for the platform.** Editing the draft text is manual; the hook and title come from the analysis.

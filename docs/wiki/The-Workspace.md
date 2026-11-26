@@ -2,13 +2,13 @@
 
 Clip Factory uses the shape of a professional editing application: a project bin on the left, a working stage in the centre, a context-sensitive inspector on the right, and a status rail along the bottom. The difference is that every panel is ranked around review, not around an empty timeline.
 
-![Triage workspace with Project, Reel and Inspector](images/workspace-reel.png)
+![Triage workspace with Project, Clips and Inspector](images/workspace-reel.png)
 
 ## The shell
 
 ### Menu bar
 
-**File**, **Edit**, **View**, **Clip**, **Workspace** and **Help** contain the main application commands. Commands that depend on a selection disable themselves instead of failing after a click.
+**File**, **Edit**, **View**, **Clip**, **Workspace** and **Help** contain the main application commands. Commands that depend on a selection disable themselves instead of failing after a click. **Help → Take the tour** replays the first-run walkthrough from anywhere.
 
 The right side of the bar has the **Command** button and the keyboard-shortcut button. The command palette is the fastest way to find a command you have not memorised.
 
@@ -18,7 +18,7 @@ The strip below the menu bar shows the three workspace presets, the current sour
 
 | Preset | Shape |
 |---|---|
-| **Triage** | Project panel and Inspector open, Reel in the centre. The reviewing layout. |
+| **Triage** | Project panel and Inspector open, Clips in the centre. The reviewing layout. |
 | **Editing** | Monitor in the centre, captions on, 9:16 guides and loop on. The finishing layout. |
 | **Review** | Both side panels stowed, Monitor in the centre. The cleanest view of the frame. |
 
@@ -29,7 +29,8 @@ Switching presets changes panel visibility and monitor settings; it does not ove
 The left panel is the source bin.
 
 - **Sources** lists every imported source with duration, size, analyzed state and clip count. Select a source to load its analysis. The filter field narrows the list.
-- **Insights** holds pipeline warnings, backend telemetry, reel quality, the learning summary and the hardware/models entry point.
+- **Insights** holds pipeline warnings, backend telemetry, clip quality, the learning summary and the hardware/models entry point.
+- **Accounts** connects YouTube and X, shows each account's posts and baseline, and hosts **Sync** and **Sync and retrain now**. See [Learning from your posts](Learning.md).
 - **Add a source** accepts a local path or an HTTP(S) VOD URL. **Demo stream** generates a self-contained test source.
 - The footer opens **Hardware & models** and shows the local-first status.
 
@@ -41,7 +42,7 @@ The centre has three tabs:
 
 | Tab | Purpose |
 |---|---|
-| **Reel** | Ranked clips, filters, search, list/grid views, approve and reject actions |
+| **Clips** | The ranked reel: filters, search, list/grid views, approve and reject actions |
 | **Monitor** | Source preview, hook and caption overlays, 9:16 guides, transport and clip actions |
 | **Timeline** | The source audio envelope, ranked clip blocks and playhead; click to select, double-click for the monitor |
 
@@ -49,12 +50,13 @@ Switch with `1`, `2`, `3`, or by clicking a tab. The tab counts update as clips 
 
 ### Inspector
 
-The right panel is always about the current clip. It has three sections:
+The right panel is always about the current clip. It has four sections:
 
 | Tab | Contents |
 |---|---|
 | **Properties** | Final score, hook editor, signal bars, clip facts, quality scorecard, gates, trim, transcript window |
 | **Captions** | Caption pages with timings, characters per second, line layout and warnings |
+| **Coach** | Evidence-backed suggestions, each with preview, apply and undo |
 | **Output** | Caption preset, framing, render action, rendered preview, handoff formats |
 
 Collapse it with `Ctrl+Shift+B`. The **View** menu can float it instead.
@@ -91,7 +93,7 @@ Shortcuts are ignored while you are typing in a hook, trim or search field.
 | Command palette | `Ctrl/Cmd+K` |
 | Toggle Project panel | `Ctrl/Cmd+B` |
 | Toggle Inspector | `Ctrl/Cmd+Shift+B` |
-| Reel / Monitor / Timeline | `1` / `2` / `3` |
+| Clips / Monitor / Timeline | `1` / `2` / `3` |
 | Shortcut reference | `?` |
 
 ### Review

@@ -11,9 +11,11 @@ Open **Project → Accounts**. YouTube and X are the platforms with both an uplo
 | YouTube | Your uploads with views, likes and comments from the YouTube Data API |
 | X | Your posts and public metrics: impressions, likes, replies, reposts, quotes and bookmarks |
 
-Tokens live in the OS credential store. SQLite stores the account row, post metadata, metrics and a token reference — never the token itself. **Disconnect** removes both.
+Tokens live in the OS credential store. SQLite stores the account row, post metadata, metrics and a token reference — never the token itself. **Disconnect** removes the local entry and stored token first, then asks the provider to revoke it; a provider outage cannot keep the token alive locally.
 
 Press **Sync** after publishing, or let the weekly loop do it. A post needs 24 hours and 50 views before its engagement is treated as eligible; that keeps the first hour of noise out of the labels.
+
+The tab shows each account's baseline — eligible posts, median views and median engagement — then the recent posts with views, engagement rate and a **win**, **miss** or **settling** pill. Something that is still settling has no label yet and contributes nothing to training; `GET /api/accounts/{id}/overview` also reports whether the account has enough labelled posts.
 
 ## Two different learners
 
@@ -25,7 +27,7 @@ This learner answers *what you tend to keep*, not *what the audience watched*. I
 
 ### What the audience watched
 
-Published posts with a full feature vector train the personal performance model. The label is the post's **engagement rate**, not raw views:
+Every upload queued from this app records what the pipeline measured about the clip — features, signals and the judge's score — on the post, so those are the posts that train the personal performance model. Imported channel history is still synced and supplies the per-account baseline, but it has no clip features to learn from. The label is the post's **engagement rate**, not raw views:
 
 ```text
 likes + 2.5 × comments + 4 × shares + 3 × saves
@@ -39,7 +41,7 @@ Each account needs at least **8 eligible posts** before its median splits them i
 - a **200-permutation** test puts the result below **p = 0.05**;
 - the gate passes on data the model did not train on.
 
-A failed gate leaves the previous active model alone. **Train now** runs the same gate for one account; **Pause** returns to approval-only ranking without deleting the model. History keeps every attempt with its AUC, rows, positives and negatives, not just a green badge, so a promotion can be audited later.
+A failed gate leaves the previous active model alone. **Retrain now** runs the same gate for the pooled account data; a passing model becomes the active ranker for every clip, so use it when that audience reflects what you want the ranker to learn. **Pause model** returns to approval-only ranking without deleting the model. History keeps every attempt's AUC, rows, positives and negatives, not just a green badge, so a promotion can be audited later — and an attempt that failed the gate cannot be activated by hand, through the interface or the API.
 
 ## How much the models may move a score
 
@@ -63,7 +65,7 @@ A daemon checks once an hour whether seven days have passed since `weekly_learni
 4. promotes it only if every gate passes;
 5. records the next run time and the per-account result.
 
-**Run now** on the Accounts tab does the same work immediately. `CLIPPER_DISABLE_WEEKLY=1` turns the daemon off for development; the manual endpoint still works.
+**Sync and retrain now** on the Accounts tab does the same work immediately. The loop lives inside the desktop app, so it runs while the app is open and catches up on the first launch after seven days have passed; it cannot run while the app is closed. `CLIPPER_DISABLE_WEEKLY=1` turns the daemon off for development; the manual endpoint still works.
 
 The loop is deliberately conservative. Seven days is enough time for short-form posts to find their audience, and a weekly cadence is slow enough that a single lucky post cannot retrain the ranker every few hours.
 

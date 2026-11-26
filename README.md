@@ -2,12 +2,14 @@
 
 Local-first stream clipper. Point it at a long VOD; it finds the moments worth
 posting and hands you a reviewable reel with a quality scorecard on every clip.
-Nothing is uploaded, and the only model is the one you install.
+Nothing leaves the machine on its own: URL imports, uploads, account syncs and
+model downloads each wait for you to press the button, and the only model is the
+one you install.
 
 Built for laptops that are not fast: the deterministic signals do the finding,
 the LLM only re-ranks a short list, and the whole analysis pipeline peaks under
-90 MB of resident memory for a 3-minute source (see [Measured cost](#measured-cost)
-and the [performance baseline](docs/perf-baseline.md)).
+90 MB of resident memory for a 3-minute source (see [Measured cost](#measured-cost),
+reproduced by `scripts/perf.py`).
 
 ![The clip list in the Sort clips workspace](docs/wiki/images/workspace-reel.png)
 
@@ -240,8 +242,10 @@ with no binary used to look exactly like "transcription is broken".
 ### Tests
 
 ```bash
-./.venv/Scripts/python.exe -m pytest        # 211 tests, ~25 s, includes real encodes
-./.venv/Scripts/python.exe scripts/perf.py  # per-stage time and peak memory
+./.venv/Scripts/python.exe -m pytest              # backend suite, includes real encodes
+cd web && npm test                                # Vitest: API client and theme maths
+./.venv/Scripts/python.exe scripts/copy-lint.py   # flags internal vocabulary in the UI copy
+./.venv/Scripts/python.exe scripts/perf.py        # per-stage time and peak memory
 ```
 
 ---
@@ -335,9 +339,18 @@ fine-tuning is an export path, not a mechanism.
 5. **Export** — `GET /api/learn/export` emits SFT pairs + DPO triples for people
    who want to fine-tune elsewhere.
 
+A second learner reads what happened *after* publishing. Posts from a connected
+account sync views, likes, comments, shares and saves; the engagement rate
+becomes the label. With 8 eligible posts on an account and 30 full-feature posts
+in the pool, a performance model is fitted and evaluated on a time-ordered
+holdout (AUC margin plus a 200-permutation p test) before it may move a score at
+all. Only posts published by this app carry the pipeline's feature vector, so
+the model can never learn from a clip the pipeline could not have produced.
+
 Everything is per-machine, versioned, inspectable and revertible. Feedback can
 only re-rank inside the gated pool — it can never manufacture a clip that fails
-the gates.
+the gates. Thresholds, blend caps and the coach are in
+[Learning from your posts](docs/wiki/Learning.md).
 
 ---
 
@@ -509,8 +522,10 @@ web/                      React + TS, hand-authored CSS (no Tailwind)
 desktop/                  Electron shell: spawns + health-checks + tree-kills the sidecar
 backend/clipper/
   api.py                  FastAPI; also serves web/dist in production
+  db.py                   SQLite schema, in-place column upgrades, every query
   service.py              the pipeline as one resumable function
   models.py               model manager: manifest, resumable download, activation
+  readiness.py            setup cards: ffmpeg, whisper, runner, credential store
   lang.py                 script detection, token joining, display width, fonts
   pipeline/
     media.py              ffprobe, streamed audio, RMS/flux/ZCR, peak pyramid
@@ -539,6 +554,12 @@ backend/clipper/
     bundle.py             manifest + zip of all of the above
   llm/                    GBNF grammar, prompts, llama-server + stub scorers
   learn/                  decision log, re-ranker, few-shot memory, style profile
+  analytics.py            post + metric sync, engagement labels, per-account baseline
+  personal.py             gated performance model over published posts, blend caps
+  coach.py                evidence-backed suggestions: preview, apply, undo
+  weekly.py               daemon that syncs, relabels and retrains once a week
+  accounts.py             OAuth accounts, credential-store tokens, remote revoke
+  publish/                limits, draft checks, durable queue, youtube + x adapters
   hw/                     (hardware.py) probe, tier advisory, model manifest
   rt/                     peak-RSS sampling used by scripts/perf.py
 scripts/perf.py           measured resource report

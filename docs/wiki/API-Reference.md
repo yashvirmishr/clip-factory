@@ -36,10 +36,17 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/api/health` | `ok`, version, data dir, busy flag, llama URL, whisper path |
+| GET | `/api/diagnostics` | Versions, data-directory sizes, disk free, for a bug report |
+| GET | `/api/readiness` | Every setup card's check, from one probe of the machine |
 | GET | `/api/hardware?refresh=false` | Hardware profile, tier advice, model recommendations |
 | GET | `/api/ffmpeg` | libass availability and hardware encoder availability |
+| GET | `/api/settings/llm` | Scoring runner address, its source and whether it answers |
+| POST | `/api/settings/llm` | Save a runner address; 409 when `CLIPPER_LLAMA_URL` owns it |
+| POST | `/api/settings/llm/test` | Probe an address without saving it |
 
 `/api/ffmpeg` calls ffmpeg directly on every request. It reports `available: true` when the ffmpeg build has the `ass` filter, which is the libass requirement for burning captions.
+
+`/api/readiness` is the same payload the setup cards and first-run tour read, so a check cannot disagree between the card and the API. `/api/diagnostics` never leaves the machine; the about panel is the only consumer.
 
 ## Sources
 
@@ -245,7 +252,7 @@ Exports include every ranked clip, not only approved clips. A source without a r
 | DELETE | `/api/accounts/{id}` | Revoke and forget an account |
 | POST | `/api/accounts/{id}/sync` | Pull posts and metrics through the platform API |
 | GET | `/api/accounts/{id}/overview` | Followers, medians and label readiness for one account |
-| GET | `/api/accounts/{id}/posts` | Recent posts with the latest metrics and engagement rate |
+| GET | `/api/accounts/{id}/posts?limit=100` | Recent posts with the latest metrics and engagement rate |
 | GET | `/api/publish/limits` | Platform limits, supported platforms, verification date |
 | POST | `/api/publish/validate` | Validate a draft without uploading |
 | POST | `/api/publish` | Queue an upload |
@@ -257,9 +264,9 @@ Exports include every ranked clip, not only approved clips. A source without a r
 
 `POST /api/publish` needs `platform` (`youtube` or `x`), `account_id`, `media_path` (the rendered MP4's local path, returned by a render as `path`), `title`, `caption`, `hashtags`, `visibility` and `made_for_kids`. An unsupported platform returns 400; a draft that breaks a platform limit returns 400 with the issue list in `detail`. Validation and upload use the same rules. Reusing an `idempotency_key` returns the existing job instead of uploading twice.
 
-The queue claims a job before submitting it, retries retryable failures with backoff, resumes interrupted `running` jobs on launch, and runs a due-job scheduler every 20 seconds. `GET` and `POST /api/learn/personal` expose the gated performance model; see below.
+The queue claims a job before submitting it, retries retryable failures with backoff, resumes interrupted `running` jobs on launch, and runs a due-job scheduler every 20 seconds. `retry` refuses a job that is `running` or `cancelling`, and refuses one that already reached `done` (409 for both): re-publishing needs a new render, not a second copy of the same post.
 
-Tokens live in the operating system credential store, never in `config.json`. Anything else in the payload is passed through to the platform as metadata.
+Tokens live in the operating system credential store, never in `config.json`. Only `render_id` and `market_version` are read from a client-supplied `metadata` object; the title, caption, visibility and policy version were just validated and are not overwritten. The clip's `features`, `signals` and `llm` payloads are taken from the stored candidate, never from the request, so a published post cannot carry a feature vector the pipeline did not measure. A clip that no longer exists is recorded with `feature_coverage: "none"` and stays out of the performance model.
 
 The API rejects publishing when the credential store is unavailable rather than writing tokens to disk.
 
@@ -294,16 +301,19 @@ Activation persists in `config.json` and survives restart. A model that is not i
 
 The export is `application/jsonl`. It is generated from the local decision log and is not automatically uploaded anywhere.
 
-The personal model's gate is code, not an API option: 30 full-feature posts, 10 per class, a held-out AUC at least 0.03 above a reach-only baseline and a 200-permutation p < 0.05. `train` reports the gate result and leaves the active model alone on failure. The weekly daemon honors its seven-day interval; a manual run always runs.
+The personal model's gate is code, not an API option: 30 full-feature posts, 10 per class, a held-out AUC at least 0.03 above a reach-only baseline and a 200-permutation p < 0.05. `train` reports the gate result and leaves the active model alone on failure. `activate` refuses a version that did not clear the gate (409) — a failed attempt stays in the history for inspection but cannot be promoted by hand. The weekly daemon honors its seven-day interval; a manual run always runs.
 
 ## Errors
 
 | Status | Typical cause |
 |---|---|
-| 400 | Unknown export format, invalid decision action, malformed caption pages, not an HTTP(S) URL |
-| 404 | Source, clip, job, render or model not found; analysis or peaks not built |
-| 409 | URL import without yt-dlp, no ranked clips to export, model not downloaded |
+| 400 | Unknown export format, invalid decision action, malformed caption pages, not an HTTP(S) URL, draft that breaks a platform limit |
+| 401 | The account's token expired or was revoked; reconnect it |
+| 404 | Source, clip, job, render, model or account not found; analysis or peaks not built |
+| 409 | URL import without yt-dlp, no ranked clips to export, model not downloaded, retry of a running or finished upload, activation of a model that failed its gate, runner address set by `CLIPPER_LLAMA_URL` |
 | 500 | ffmpeg missing, malformed peaks artifact, demo generation failure |
+| 502 | The platform's analytics or upload API failed; `detail` carries the platform's message and `code` |
+| 503 | The operating system credential store is unavailable, so connecting an account is refused |
 
 ffmpeg failures inside a render job are reported on the job's `error` field, not as HTTP 500, because the request only queued the work.
 

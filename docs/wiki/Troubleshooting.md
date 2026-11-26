@@ -111,6 +111,63 @@ clips stay in the list until you reject or trim them; nothing is deleted.
 
 **No clips export.** Export includes ranked clips, not approved-only clips, but a source with no ranked candidates returns 409. Analyze first.
 
+## Accounts, publishing and learning
+
+**Connect is greyed out, or the tab says "Secure storage unavailable".** The OS
+credential store could not be opened, so the app refuses to store a token rather
+than writing one to disk. `GET /api/accounts` reports the reason under
+`secret_store.detail`. On Linux that usually means no Secret Service
+(gnome-keyring, KWallet or `pass`) in the session; on Windows, a policy that
+blocks Credential Manager. For development only, `CLIPPER_SECRET_BACKEND=memory`
+keeps tokens in RAM, and they are gone after a restart.
+
+**The consent page ends on "Connection failed".** The code expired (ten minutes)
+or the redirect did not match exactly. Start **Connect** again; the URI registered
+with the provider has to be the copy in the Accounts tab, port included.
+
+**The provider says `redirect_uri_mismatch` or rejects the client secret.** Google
+needs a **Web application** client with the callback above and both ID and secret;
+X needs a **confidential** OAuth 2.0 client, not a public/native one. Paste the
+secret again — a trailing space is enough to fail.
+
+**Sync returns 401.** The token was revoked or expired at the provider. Disconnect
+and connect again; nothing else changes.
+
+**Sync returns 502, or X says the rate limit was reached.** The payload carries the
+platform's own message and an error code. X limits are per app per window; the
+weekly loop or a later **Sync** will catch up. A 403 usually means a missing scope
+or a plan that does not allow the call.
+
+**Posts are listed but nothing gets labelled.** A post settles after 24 hours and
+50 views, and an account needs 8 eligible posts before its median can split them
+into wins and misses. Until then every pill says **settling**, which is also what
+"No posts captured yet" means before the first Sync.
+
+**The performance model never goes live.** It needs 30 posts that carry clip
+features, at least 10 wins and 10 misses, an AUC 0.03 above a reach-only baseline
+and p < 0.05 on a 200-permutation test. Channel history has no features, so it can
+raise the baseline but never train the model. The history list shows each
+attempt's numbers, including a failed gate.
+
+**A model version never becomes active.** It failed its gate, and a failed attempt
+cannot be activated by hand — the API answers 409. Retrain once more posts have
+settled. A 409 on `retry` is different: that upload is still running, or already
+published.
+
+**The weekly run did not happen.** The daemon lives in the app: it checks 20
+seconds after launch and then hourly, and runs when seven days have passed.
+`GET /api/learning/weekly` shows `last_run`, `next_run` and `due`;
+`CLIPPER_DISABLE_WEEKLY=1` turns it off. **Sync and retrain now** always runs.
+
+**Disconnect left the app's access at the provider.** The app removes the local
+token first and then asks the provider to revoke it; if revocation failed (or
+`CLIPPER_DISABLE_REVOKE=1` is set), remove the app from the provider's account
+settings. The app no longer holds the token either way.
+
+**The Coach tab shows nothing.** No rule fired, which is normal on a clean clip.
+Suggestions are rules over the transcript, gates and signals, so a bad transcript
+produces poor ones; fix or re-import it before trusting the coach.
+
 ## Themes and layout
 
 **A theme file will not import.** It must be JSON with all nine seed colours. Unknown fields are discarded; a missing seed is a hard error. An optional font stylesheet must be HTTPS or it is ignored.
@@ -146,7 +203,7 @@ clips stay in the list until you reject or trim them; nothing is deleted.
 Include:
 
 - the exact error text and the surface where it appeared;
-- the Clip Factory version from `GET /api/health`;
+- the Clip Factory version from `GET /api/health`, or the whole `GET /api/diagnostics` snapshot (versions, paths, sizes, disk free);
 - the job JSON from `GET /api/jobs/{id}`, if a job failed;
 - the output of `GET /api/ffmpeg` for caption or encoder problems;
 - whether models are installed and active;

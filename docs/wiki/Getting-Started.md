@@ -12,6 +12,7 @@ This page takes you from a clean checkout to a rendered clip. The application ha
 | A Chromium-based browser or the Electron shell | Video preview and the full workspace |
 | Optional: whisper.cpp binary | Real transcription; without it the app can use an API-supplied subtitle file or the deterministic stub |
 | Optional: a local llama.cpp server | LLM re-ranking; without it the labelled heuristic stub is used |
+| Optional: `opencv-python-headless` | Face-aware framing (`pip install -r requirements-optional.txt`) |
 
 `yt-dlp` is installed from `requirements.txt` and is only needed for URL imports. Twitch chat replay needs a Twitch VOD URL but no account.
 
@@ -104,7 +105,7 @@ If Electron exits with `app is undefined`, unset `ELECTRON_RUN_AS_NODE` for that
 1. Open the **Project** panel on the left.
 2. Choose **Demo stream** for a generated three-minute source, or paste a file path / VOD URL into **Add a source** and choose **Ingest**.
 3. Choose **Analyze**. The header shows Audio, Transcribe, Signals, Score and Select progress.
-4. Open the **Reel**. The selected clip appears in the **Inspector** and the **Monitor**.
+4. Open the **Clips** tab. The selected clip appears in the **Inspector** and the **Monitor**.
 5. Approve or reject a few clips. Rejections can carry a short reason, which feeds the local learning loop.
 6. Open **Output** in the Inspector, pick a caption preset and framing mode, then choose **Render clip**.
 7. Download the MP4, bake the whole reel, or use **Handoff** to export a bundle with OTIO, FCP7 XML, FCP X XML or EDL.
@@ -136,7 +137,7 @@ Set `CLIPPER_DATA_DIR` to override it. The directory contains:
 
 | Path | Contents |
 |---|---|
-| `clipper.sqlite3` | Sources, analyses, decisions, hook edits and state |
+| `clipper.sqlite3` | Sources, analyses, decisions, edits, accounts and post metrics, the publish queue, trained models and state |
 | `media/` | Source video downloaded from URLs; local files are referenced in place, not copied |
 | `artifacts/` | Per-source transcripts, peaks, signals and candidate artifacts |
 | `models/` | Downloaded model files and checksums |
@@ -161,4 +162,5 @@ Changing `CLIPPER_DATA_DIR` points the app at a different library. It does not m
 
 - Learn the panels and shortcuts in [The Workspace](The-Workspace.md).
 - Understand what you are approving in [Reviewing Clips](Reviewing-Clips.md).
+- Publish a clip and let the app learn from how it did in [Publishing](Publishing.md) and [Learning from your posts](Learning.md).
 - If something refuses to start, use [Troubleshooting](Troubleshooting.md).

@@ -33,4 +33,22 @@ built-in rules, or a local model runner if one is set.
 **Export bundle** — a folder of clips, captions and a timeline file for another
 editor.
 
+**Connected account** — a YouTube or X account you authorised once, so Clip
+Factory can read its posts and, if you ask, publish. The token lives in the
+operating system's credential store, not in the database.
+
+**Engagement rate** — the weighted reactions on a post divided by its views:
+likes, comments, shares and saves, not raw view count. It is the label the
+performance model learns from.
+
+**Settling** — a post younger than 24 hours or below 50 views. Its numbers are
+still moving, so it is not labelled yet.
+
+**Performance model** — a small model trained on your published posts, and
+whether their engagement beat the account's median. It only goes live if it
+beats a reach-only baseline on data it never trained on.
+
+**Coach** — suggestions for a clip, each with the evidence that produced it.
+Every fix is previewed before it is applied and can be undone.
+
 **Theme studio** — where colours and type are chosen.

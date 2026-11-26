@@ -15,7 +15,7 @@ Browser (localhost:5173)        Electron shell
      |               |
   analyses       one worker
   decisions          |
-  edits          pipeline / render
+  edits          pipeline / render / publish
                      |
               media, artifacts, models, renders
 ```
@@ -27,6 +27,8 @@ Browser (localhost:5173)        Electron shell
 The API creates a `JobManager` with a single worker thread. Every long task — analysis, URL download, chat fetch, model download or render — goes through that queue. Jobs expose `queued`, `running`, `done` or `error`, a stage label and a 0–1 progress value. Job state is in memory; a restart loses a queued or running job, not completed analyses.
 
 One worker is a deliberate constraint. The pipeline and ffmpeg are already CPU- and memory-heavy on a laptop; two renders or a render beside a transcription would make timings and failures unpredictable. The UI enforces the same reality by reporting that the backend is busy.
+
+Two small background threads run beside that worker, because they wait rather than compute: the publish scheduler, which picks up due uploads after a backoff, and the weekly learning daemon, which syncs accounts and retrains when seven days have passed. Neither runs ffmpeg or competes for the analysis worker, and both can be turned off for development (see [Development](Development.md#environment-variables)).
 
 ## The analysis pipeline
 
@@ -88,11 +90,17 @@ The render cache is content-addressed by clip, preset, resolved framing and a di
 
 Media is referenced by absolute path. The exporters do not copy source files. Baking is the exception in the other direction: it renders every ranked clip into one folder and reuses the render cache, so it does not render a second time.
 
-## Learning loop
+## Learning
 
-`learn/features.py`, `ranker.py`, `memory.py` and `profile.py` use the local decision log. Once there are enough labels, the app fits a personal re-ranker, evaluates it on a held-out split and only promotes it when it clears the configured improvement gate. The same history produces a compact few-shot memory and a style profile used in later prompts.
+There are two learners, and they answer different questions.
 
-The learning loop is local and optional. It cannot repair a source that was transcribed badly, and it does not change the structural gates.
+`learn/features.py`, `ranker.py`, `memory.py` and `profile.py` read the local decision log and answer *what you tend to keep*. Once there are enough labels the app fits a re-ranker, evaluates it on a held-out split and promotes it only when it clears the configured margin. The same history produces a compact few-shot memory and a style profile used in later prompts.
+
+`analytics.py`, `personal.py` and `weekly.py` answer *what your audience watched*. `accounts.py` holds a token reference per connected account; tokens themselves live in the operating system credential store. Syncing pulls posts and metrics, `analytics.py` derives the engagement-rate label once a post is old and seen enough, and `personal.py` fits a second model behind a stricter gate (AUC over a reach-only baseline plus a permutation test). It is blended into the score under a cap, never as the whole ranking.
+
+`coach.py` is not a learner: it is a rule set over the same evidence the review panel shows, producing suggestions with a receipt. Apply and undo go through the ordinary trim and hook paths, so nothing bypasses the gates or the decision log.
+
+Both learners are local and optional. Neither can repair a source that was transcribed badly, and neither changes the structural gates.
 
 ## Frontend
 
@@ -123,7 +131,16 @@ The Timeline draws to a canvas and reads its colours from the compiled theme tok
 | `analyses` | Serialized pipeline result per source |
 | `decisions` | Every approve/reject with reason, features, scores and model version |
 | `hook_edits` | Before/after hook history |
-| `state` | Small key/value application state |
+| `clip_edits` | A coach apply, storing the value it replaced so undo is possible |
+| `suggestions` | Coach suggestions, their evidence and dismissed/applied state |
+| `accounts` | Connected account, display name and a token reference, never the token |
+| `account_snapshots` | One row per sync: followers, total and profile views, time |
+| `posts` | Posts pulled or published, with `features`, `signals`, `llm`, `feature_coverage` and `origin` |
+| `post_metrics` | Metric history per post, so a label can be refreshed as views settle |
+| `publish_jobs` | Durable upload queue: state, attempts, platform post id, idempotency key |
+| `personal_models` | Trained performance models, metrics JSON and the active flag |
+| `policy_versions` | Ranking policy versions, recorded on every publish and decision |
+| `state` | Small key/value application state, including the weekly run time |
 
 SQLite is the index, not the media store. Source media stays where it is; downloaded URL sources land in `media/`; analysis sidecars and renders live in their own directories. The database path is `<data>/clipper.sqlite3`.
 

@@ -4,7 +4,7 @@ Clip Factory is a local-first cutting room for turning long videos into vertical
 
 It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, asks a model to judge a shortlist, and puts the result in an editor. You review the evidence, adjust the hook and trim, then render a 1080 × 1920 master or hand the whole reel to another editor as a timeline.
 
-![The Reel workspace in Triage](images/workspace-reel.png)
+![The Clips workspace in Triage](images/workspace-reel.png)
 
 ## The two ideas behind it
 
@@ -38,6 +38,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 5. **Check the monitor.** Captions, 9:16 guides, loop and frame stepping sit in one transport.
 6. **Render.** Pick a caption preset and framing mode. The MP4 is written locally.
 7. **Hand off.** Bake finished MP4s, or export a bundle with OTIO, FCP7 XML, FCP X XML and SRT/VTT captions.
+8. **Publish, then learn.** Queue the render to YouTube or X from the Output tab, then let the Accounts tab sync how it did.
 
 ## What is in the box
 

@@ -28,6 +28,22 @@ $env:CLIPPER_DATA_DIR = "$PWD/tmp/experiment-a"
 ./.venv/Scripts/python.exe -m clipper
 ```
 
+## Environment variables
+
+The backend reads these from the process environment. Nothing else is configurable there; preferences live in the data directory.
+
+| Variable | Effect |
+|---|---|
+| `CLIPPER_DATA_DIR` | Library location: database, media, artifacts, renders |
+| `CLIPPER_LLAMA_URL` | Scoring runner address; when set, the Settings field is read-only and says why |
+| `CLIPPER_WHISPER_CLI` | Path to `whisper-cli` when it is not in `<data>/bin` or on `PATH` |
+| `CLIPPER_YTDLP_COOKIES` | `cookies.txt` for archives that refuse anonymous playback |
+| `CLIPPER_LOG_LEVEL` | Backend log level, `INFO` by default |
+| `CLIPPER_SECRET_BACKEND` | `keyring` (default) or `memory`; the latter keeps tokens in RAM for development |
+| `CLIPPER_DISABLE_WEEKLY=1` | Stops the weekly learning daemon; the manual endpoint still works |
+| `CLIPPER_DISABLE_PUBLISH_SCHEDULER=1` | Stops the thread that retries due uploads |
+| `CLIPPER_DISABLE_REVOKE=1` | Skips the remote revoke call when an account is disconnected |
+
 ## Checks
 
 Backend suite:
@@ -42,15 +58,22 @@ Faster pass without the real-encode test:
 ./.venv/Scripts/python.exe -m pytest -m "not slow"
 ```
 
-Frontend typecheck and production build:
+Frontend typecheck, unit tests and production build:
 
 ```powershell
 cd web
 npx tsc -b --pretty false
+npm test
 npm run build
 ```
 
-There is no frontend unit-test runner. The real gate is the TypeScript build plus a manual pass over the states you touched. The backend suite uses FastAPI's test client and temporary media fixtures; it does not need the dev server.
+`npm test` runs Vitest over `api.test.ts` and the theme colour maths, the two places where a regression is invisible in a screenshot. Everything else is still a manual pass over the states you touched. The backend suite uses FastAPI's test client and temporary media fixtures; it does not need the dev server.
+
+User-facing copy has its own check, and CI runs it:
+
+```powershell
+./.venv/Scripts/python.exe scripts/copy-lint.py
+```
 
 Useful focused runs:
 
@@ -58,6 +81,9 @@ Useful focused runs:
 ./.venv/Scripts/python.exe -m pytest backend/tests/test_api.py -q
 ./.venv/Scripts/python.exe -m pytest backend/tests/test_captions.py backend/tests/test_editors.py -q
 ./.venv/Scripts/python.exe -m pytest backend/tests/test_render.py -q -m slow
+./.venv/Scripts/python.exe -m pytest backend/tests/test_learn.py backend/tests/test_personal.py -q
+./.venv/Scripts/python.exe -m pytest backend/tests/test_analytics.py backend/tests/test_coach.py backend/tests/test_weekly.py -q
+./.venv/Scripts/python.exe -m pytest backend/tests/test_publish_queue.py backend/tests/test_x.py backend/tests/test_youtube.py -q
 ```
 
 Performance and pick quality have their own harnesses:
@@ -85,6 +111,11 @@ Performance and pick quality have their own harnesses:
 | Analysis, gates, scoring | `backend/clipper/pipeline/`, `backend/clipper/llm/` |
 | Render graph and caption burn-in | `backend/clipper/render/` |
 | NLE handoff formats | `backend/clipper/editors/` |
+| Accounts, OAuth, token storage | `backend/clipper/accounts.py`, `backend/clipper/publish/oauth.py`, `web/src/components/AccountsPanel.tsx` |
+| Upload adapters and the queue | `backend/clipper/publish/` |
+| Engagement labels and the performance model | `backend/clipper/analytics.py`, `backend/clipper/personal.py` |
+| Coach suggestions | `backend/clipper/coach.py`, `web/src/components/CoachPanel.tsx` |
+| Weekly schedule | `backend/clipper/weekly.py` |
 | HTTP surface | `backend/clipper/api.py` |
 
 ## Adding a command
@@ -137,6 +168,8 @@ Remember that a done job's result is exposed as `analysis`, even for downloads a
 
 Analyses are stored as a serialized JSON payload. If you change a domain model, old payloads must still validate, or you must provide a migration. The safe default is an optional field with a default, not a required one.
 
+A `posts` row keeps the `features`, `signals` and `llm` payloads a published clip carried. That is what lets the performance model pair a metric with the exact clip it describes; dropping or renaming one of those columns silently excludes every post from training instead of failing loudly.
+
 ## Frontend conventions
 
 - **Clarity before decoration.** One primary action per region. Do not add a control because the space is empty.
@@ -170,7 +203,14 @@ When changing the pipeline, cover the behaviour that can regress:
 | Timecode and export formats | `test_editors.py` |
 | Framing plans | `test_framing.py` |
 | API status codes and shapes | `test_api.py` |
-| Learning gate | `test_learn.py` |
+| Learning gate (taste re-ranker) | `test_learn.py` |
+| Engagement labels and post sync | `test_analytics.py` |
+| Performance-model gate and blend caps | `test_personal.py` |
+| Weekly schedule and run-now path | `test_weekly.py` |
+| Coach rules, preview, apply and undo | `test_coach.py` |
+| Publish queue, retries and cancel | `test_publish_queue.py`, `test_api_connect.py` |
+| Platform limits and adapters | `test_publish_limits.py`, `test_youtube.py`, `test_x.py` |
+| OAuth callback and account storage | `test_oauth.py`, `test_accounts.py`, `test_secrets.py` |
 
 Real encodes are slow and environment-sensitive. Keep one marked `slow` integration test rather than making every unit test invoke ffmpeg. Do not mock ffmpeg so heavily that the filter graph is never exercised.
 
