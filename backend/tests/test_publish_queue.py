@@ -186,3 +186,5 @@ def test_mark_done_is_idempotent_for_the_same_platform_post(clean_db, tmp_path, 
     with db.connect() as conn:
         count = conn.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
     assert count == 1
+    with pytest.raises(ValueError, match="already published"):
+        queue.retry(job["id"])

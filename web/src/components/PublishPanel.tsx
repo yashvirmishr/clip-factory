@@ -51,7 +51,10 @@ const JOB_TONE: Record<string, string> = {
   queued: 'warn',
   running: 'warn',
   done: 'ok',
+  retry: 'warn',
+  error: 'danger',
   failed: 'danger',
+  cancelling: 'warn',
   cancelled: '',
 }
 
@@ -355,7 +358,26 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                   confidential client and add this exact callback:
                 </>
               )}
-              <code className="bake-path">{REDIRECT_HINT}</code>
+              {' '}
+              <span className="copy-row">
+                <code className="bake-path">{REDIRECT_HINT}</code>
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-sm"
+                  aria-label="Copy callback URL"
+                  title="Copy callback URL"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(REDIRECT_HINT)
+                      notifyRef.current('ok', 'Callback URL copied.')
+                    } catch {
+                      notifyRef.current('error', 'Could not copy the callback; select it manually.')
+                    }
+                  }}
+                >
+                  <Icon name="copy" size={12} />
+                </button>
+              </span>
             </p>
             <TextField
               label="Client ID"
@@ -491,7 +513,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                     {job.error ? ` · ${String(job.error).slice(0, 60)}` : ''}
                   </span>
                   <span className={`pill ${JOB_TONE[status] ?? ''}`}>
-                    {status === 'failed' || status === 'cancelled' ? (
+                    {status === 'error' || status === 'failed' || status === 'cancelled' ? (
                       <button type="button" className="chip" onClick={() => void retry(String(job.id))}>
                         Retry
                       </button>

@@ -412,7 +412,7 @@ export interface PersonalModelState {
   active: boolean
   created_at: number
   data_window: string
-  metrics: Record<string, number | string>
+  metrics: Record<string, number | string | boolean>
   feature_importance: Record<string, number>
 }
 

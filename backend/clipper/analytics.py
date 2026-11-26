@@ -218,8 +218,8 @@ def _upsert_remote(account_id: str, remote: RemotePost, now: float) -> tuple[str
                 (id, account_id, platform_post_id, url, published_at, title, caption,
                  hashtags, duration_s, media_path, clip_id, source_id, render_id,
                  policy_version, market_version, origin, visibility, status, features,
-                 feature_coverage, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 signals, llm, feature_coverage, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 url=CASE WHEN posts.url='' THEN excluded.url ELSE posts.url END,
                 published_at=CASE WHEN posts.published_at=0 THEN excluded.published_at ELSE posts.published_at END,
@@ -233,7 +233,7 @@ def _upsert_remote(account_id: str, remote: RemotePost, now: float) -> tuple[str
                 post_id, account_id, remote.platform_post_id, remote.url,
                 float(remote.published_at or now), remote.title or "", caption,
                 json.dumps(_hashtags(caption)), float(remote.duration_s or 0),
-                "", "", "", "", "", "", "external", "", "published", "{}", "none",
+                "", "", "", "", "", "", "external", "", "published", "{}", "{}", "{}", "none",
                 now, now,
             ),
         )
@@ -383,6 +383,8 @@ def training_rows(account_id: str = "") -> list[dict]:
             "source_id": row["source_id"],
             "published_at": row["published_at"],
             "features": features,
+            "signals": _parse_json(row["signals"], {}),
+            "llm": _parse_json(row["llm"], {}),
             "label": int(row["m_label"]),
             "composite": float(row["m_composite"] or 0),
             "engagement_rate": engagement_rate({

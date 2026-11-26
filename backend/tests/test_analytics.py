@@ -86,15 +86,19 @@ def test_sync_preserves_app_features_for_the_personal_model(clean_db):
     analytics.sync_account(account.id, adapter=FakeAdapter([remote(1, 1000)]))
     post_id = analytics.list_posts(account.id)[0]["id"]
     features = {"hook_lexicon_hits": 3, "words_per_sec": 4.2}
+    signals = {"audio": 0.7, "hook_lexicon": 0.8}
+    llm = {"score": 81, "has_payoff": True}
     with db.connect() as conn:
         conn.execute(
-            "UPDATE posts SET origin=?, feature_coverage=?, features=? WHERE id=?",
-            ("app", "full", json.dumps(features), post_id),
+            "UPDATE posts SET origin=?, feature_coverage=?, features=?, signals=?, llm=? WHERE id=?",
+            ("app", "full", json.dumps(features), json.dumps(signals), json.dumps(llm), post_id),
         )
         conn.execute("UPDATE post_metrics SET label=1 WHERE post_id=?", (post_id,))
     rows = analytics.training_rows(account.id)
     assert len(rows) == 1
     assert rows[0]["features"] == features
+    assert rows[0]["signals"] == signals
+    assert rows[0]["llm"] == llm
     assert rows[0]["label"] == 1
 
 

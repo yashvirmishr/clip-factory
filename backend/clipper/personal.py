@@ -119,6 +119,7 @@ def train(account_id: str = "", *, now: float | None = None) -> dict:
     promoted = gain >= MIN_AUC_GAIN and p_value < 0.05
     version = _version(rows, account_id)
     metrics = {
+        "promoted": promoted,
         "n": n, "positives": positives, "negatives": negatives,
         "auc": round(model_auc, 4), "baseline_auc": round(baseline_auc, 4),
         "gain": round(gain, 4), "p_value": round(p_value, 4),
@@ -176,14 +177,15 @@ def active_record() -> dict | None:
 def active() -> RankerModel | None:
     with db.connect() as conn:
         row = conn.execute(
-            "SELECT payload FROM personal_models WHERE active=1 ORDER BY created_at DESC LIMIT 1"
+            "SELECT payload, metrics FROM personal_models WHERE active=1 ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
     if row is None:
         return None
     payload = _loads(row["payload"], {})
     model = RankerModel.from_dict(payload)
     if model is not None:
-        model.auc = float(payload.get("auc", model.auc))
+        metrics = _loads(row["metrics"], {})
+        model.auc = float(metrics.get("auc", model.auc))
     return model
 
 
@@ -192,6 +194,12 @@ def activate(version: str) -> dict:
         row = conn.execute("SELECT * FROM personal_models WHERE version=?", (version,)).fetchone()
         if row is None:
             raise KeyError(f"Unknown personal model: {version}")
+        metrics = _loads(row["metrics"], {})
+        promoted = bool(metrics["promoted"]) if "promoted" in metrics else (
+            float(metrics.get("gain", 0)) >= MIN_AUC_GAIN and float(metrics.get("p_value", 1)) < 0.05
+        )
+        if not promoted:
+            raise ValueError("That model did not clear the promotion gate; it cannot be activated manually.")
         conn.execute("UPDATE personal_models SET active=0")
         conn.execute("UPDATE personal_models SET active=1 WHERE version=?", (version,))
         row = conn.execute("SELECT * FROM personal_models WHERE version=?", (version,)).fetchone()

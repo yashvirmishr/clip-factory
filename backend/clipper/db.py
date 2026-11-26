@@ -145,6 +145,8 @@ CREATE TABLE IF NOT EXISTS posts (
     visibility TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'published',
     features TEXT NOT NULL DEFAULT '{}',
+    signals TEXT NOT NULL DEFAULT '{}',
+    llm TEXT NOT NULL DEFAULT '{}',
     feature_coverage TEXT NOT NULL DEFAULT 'full',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
@@ -283,6 +285,14 @@ def init(db_path: Path | None = None) -> None:
         # The source list reads these instead of parsing every stored payload.
         # A database that predates them is backfilled once, here.
         added_summary = False
+        try:
+            conn.execute("ALTER TABLE posts ADD COLUMN signals TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE posts ADD COLUMN llm TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass
         try:
             conn.execute("ALTER TABLE analyses ADD COLUMN clip_count INTEGER NOT NULL DEFAULT 0")
             added_summary = True

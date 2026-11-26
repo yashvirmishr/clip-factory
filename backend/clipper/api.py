@@ -1502,6 +1502,8 @@ def activate_personal(version: str) -> dict:
         return personal.activate(version)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/learn/personal/rollback")
@@ -1779,7 +1781,17 @@ def create_publish(request: PublishCreateRequest) -> dict:
         "media": asdict(draft.media),
         "policy_version": policy.active().version,
     }
-    metadata.update(request.metadata)
+    # Only the fields the server cannot reconstruct are accepted from the
+    # client. Title, caption, visibility and policy version were just validated
+    # above and must not be overwritten by a second copy in `metadata`.
+    for key in ("render_id", "market_version"):
+        if key in request.metadata:
+            metadata[key] = request.metadata[key]
+    candidate = db.find_candidate(request.source_id, request.clip_id) if request.source_id and request.clip_id else None
+    metadata["features"] = candidate.features.model_dump() if candidate is not None else {}
+    metadata["signals"] = dict(candidate.signals or {}) if candidate is not None else {}
+    metadata["llm"] = candidate.llm.model_dump() if candidate is not None and candidate.llm is not None else {}
+    metadata["feature_coverage"] = "full" if candidate is not None else "none"
     try:
         job = publish_queue.enqueue(
             platform=request.platform,

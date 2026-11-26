@@ -272,7 +272,25 @@ export function AccountsPanel({ onNotify }: Props) {
               </select>
             </Field>
             <Field label="Callback">
-              <code className="bake-path">{REDIRECT}</code>
+              <div className="copy-row">
+                <code className="bake-path">{REDIRECT}</code>
+                <button
+                  type="button"
+                  className="icon-btn icon-btn-sm"
+                  aria-label="Copy callback URL"
+                  title="Copy callback URL"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(REDIRECT)
+                      notifyRef.current('ok', 'Callback URL copied.')
+                    } catch {
+                      notifyRef.current('error', 'Could not copy the callback; select it manually.')
+                    }
+                  }}
+                >
+                  <Icon name="copy" size={12} />
+                </button>
+              </div>
             </Field>
             <p className="field-hint">{setup.hint}</p>
             <TextField label="Client ID" value={clientId} onChange={setClientId} placeholder="OAuth client ID" />
@@ -340,7 +358,7 @@ export function AccountsPanel({ onNotify }: Props) {
             <p className="field-hint">
               {personal.active
                 ? `Blended at ${(personal.blend_cap * 100).toFixed(0)}% with your approval model. Held-out AUC ${String(personal.active.metrics.auc ?? '—')}.`
-                : `${personal.posts} settled posts (${personal.positives} wins / ${personal.negatives} misses). Needs ${personal.min_posts} with at least ${personal.min_per_class} of each before it can train.`}
+                : `${personal.posts} settled posts (${personal.positives} wins / ${personal.negatives} misses). Needs ${personal.min_posts} with at least ${personal.min_per_class} of each before it can train. A model that passes applies to every clip.`}
             </p>
             <div className="button-row">
               <button type="button" className="btn ghost sm" onClick={() => void train()} disabled={busy === 'train'}>

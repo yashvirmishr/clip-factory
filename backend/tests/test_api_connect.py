@@ -90,13 +90,51 @@ def test_publish_create_accepts_x_and_stores_a_job(clean_db, monkeypatch, tmp_pa
             "media": {"duration": 30, "width": 1080, "height": 1920, "size_bytes": 18, "has_audio": True, "format": "mp4"},
             "caption": "A test clip",
             "visibility": "public",
+            "metadata": {"title": "Overridden", "visibility": "private"},
         })
         assert response.status_code == 200, response.text
         job = response.json()
         assert job["platform"] == "x"
         assert job["status"] == "queued"
+        assert job["metadata"]["visibility"] == "public"
+        assert job["metadata"]["title"] == ""
+        assert job["metadata"]["feature_coverage"] == "none"
         listed = client.get("/api/publish/jobs")
         assert listed.json()["jobs"][0]["id"] == job["id"]
+
+
+def test_publish_snapshots_the_clip_features_for_the_personal_model(clean_db, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from clipper.domain import WindowFeatures
+
+    account = connect("x")
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"not really a video")
+    candidate = SimpleNamespace(
+        features=WindowFeatures(duration=30, word_count=80),
+        signals={"audio": 0.7},
+        llm=SimpleNamespace(model_dump=lambda: {"score": 81}),
+    )
+    monkeypatch.setattr(api.db, "find_candidate", lambda *_: candidate)
+    monkeypatch.setattr(api, "_submit_publish", lambda job_id: None)
+    with TestClient(api.app) as client:
+        response = client.post("/api/publish", json={
+            "platform": "x",
+            "account_id": account.id,
+            "media_path": str(media),
+            "media": {"duration": 30, "width": 1080, "height": 1920, "size_bytes": 18, "has_audio": True, "format": "mp4"},
+            "caption": "A test clip",
+            "visibility": "public",
+            "source_id": "src1",
+            "clip_id": "clip1",
+        })
+        assert response.status_code == 200, response.text
+        metadata = response.json()["metadata"]
+        assert metadata["feature_coverage"] == "full"
+        assert metadata["features"]["duration"] == 30
+        assert metadata["signals"] == {"audio": 0.7}
+        assert metadata["llm"]["score"] == 81
 
 
 def test_publish_rejects_a_mismatched_account(clean_db, tmp_path):

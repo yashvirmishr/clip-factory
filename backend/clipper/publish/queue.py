@@ -205,6 +205,25 @@ def mark_done(job_id: str, result: PublishResult) -> dict:
         if row is None:
             raise PublishError("The publish job disappeared.", code="missing_job")
         metadata = _json(row["metadata"], {})
+        features = metadata.get("features")
+        signals = metadata.get("signals")
+        llm = metadata.get("llm")
+        if not isinstance(features, dict) or not features:
+            # Older queued rows, and direct queue callers, may not carry a
+            # feature vector. Recover it from the clip so a published post can
+            # still join the personal model once its label settles.
+            candidate = db.find_candidate(row["source_id"], row["clip_id"])
+            if candidate is not None:
+                features = candidate.features.model_dump()
+                signals = dict(candidate.signals or {})
+                llm = candidate.llm.model_dump() if candidate.llm is not None else {}
+            else:
+                features = {}
+        if not isinstance(signals, dict):
+            signals = {}
+        if not isinstance(llm, dict):
+            llm = {}
+        coverage = "full" if features else "none"
         conn.execute(
             """
             UPDATE publish_jobs SET status=?, stage=?, progress=1, platform_post_id=?,
@@ -219,12 +238,13 @@ def mark_done(job_id: str, result: PublishResult) -> dict:
                 (id, account_id, platform_post_id, url, published_at, title, caption,
                  hashtags, duration_s, media_path, clip_id, source_id, render_id,
                  policy_version, market_version, origin, visibility, status, features,
-                 feature_coverage, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 signals, llm, feature_coverage, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 url=excluded.url, title=excluded.title, caption=excluded.caption,
                 hashtags=excluded.hashtags, duration_s=excluded.duration_s,
                 visibility=excluded.visibility, status=excluded.status,
+                features=excluded.features, signals=excluded.signals, llm=excluded.llm,
                 updated_at=excluded.updated_at
             """,
             (
@@ -238,8 +258,8 @@ def mark_done(job_id: str, result: PublishResult) -> dict:
                 str(metadata.get("policy_version", "") or ""),
                 str(metadata.get("market_version", "") or ""),
                 "app", str(metadata.get("visibility", "") or ""), "published",
-                json.dumps(metadata.get("features", {}) or {}),
-                str(metadata.get("feature_coverage", "full") or "full"),
+                json.dumps(features), json.dumps(signals), json.dumps(llm),
+                coverage,
                 now, now,
             ),
         )
@@ -280,8 +300,10 @@ def retry(job_id: str) -> dict | None:
         row = conn.execute("SELECT status FROM publish_jobs WHERE id=?", (job_id,)).fetchone()
         if row is None:
             return None
-        if row["status"] == "running":
-            raise ValueError("That upload is still running.")
+        if row["status"] in ("running", "cancelling"):
+            raise ValueError("That upload is still running or stopping.")
+        if row["status"] == "done":
+            raise ValueError("That clip is already published. Upload a new render instead of retrying it.")
         conn.execute(
             """
             UPDATE publish_jobs SET status=?, stage=?, progress=0, attempts=0,

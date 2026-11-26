@@ -108,7 +108,7 @@ export function CoachPanel({ sourceId, clip, onClipUpdated, onSeek, onNotify }: 
         </header>
         <div className="section-body stack-12">
           <p className="field-hint">
-            Suggestions only change the clip after you press Preview and apply. Every claim is tied to a timestamp or a measured feature.
+            Nothing changes until you press Apply. Preview shows the exact cut first, and every claim is tied to a timestamp or a measured feature.
           </p>
           {visible.length === 0 ? <p className="panel-empty">No quality issues found for this clip.</p> : null}
           {visible.map((item) => {

@@ -92,6 +92,16 @@ def test_activation_and_rollback_are_explicit(clean_db):
     assert personal.history()[0]["version"] == result["version"]
 
 
+def test_a_model_that_missed_the_gate_cannot_be_activated(clean_db):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO personal_models (version, created_at, payload, metrics, active, data_window) VALUES (?,?,?,?,0,?)",
+            ("pm_weak", time.time(), "{}", json.dumps({"gain": 0.0, "p_value": 0.5}), "all"),
+        )
+    with pytest.raises(ValueError, match="promotion gate"):
+        personal.activate("pm_weak")
+
+
 def test_state_reports_the_learning_gate(clean_db):
     account = connect()
     seed(account.id, n=30)
