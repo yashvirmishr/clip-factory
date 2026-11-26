@@ -35,6 +35,7 @@ interface ReelProps {
   onMenu: (clip: Clip, position: { x: number; y: number }) => void
   onAnalyze: () => void
   onDemo: () => void
+  onTour?: () => void
   onImport: () => void
 }
 
@@ -62,6 +63,7 @@ export const Reel = memo(function Reel({
   onMenu,
   onAnalyze,
   onDemo,
+  onTour,
   onImport,
 }: ReelProps) {
   const warningCount = analysis?.warnings.length ?? 0
@@ -163,6 +165,11 @@ export const Reel = memo(function Reel({
                 <Icon name="sparkles" size={14} />
                 Generate demo stream
               </button>
+              {onTour ? (
+                <button type="button" className="btn ghost" onClick={onTour}>
+                  Take the tour
+                </button>
+              ) : null}
             </div>
           </div>
         ) : !analysis && busy ? (
@@ -178,8 +185,8 @@ export const Reel = memo(function Reel({
             </span>
             <h2>This source is unread.</h2>
             <p>
-              Run the analysis to transcribe the stream, score every window and open the ranked
-              reel. Stub models are labelled, never hidden.
+              Analysis reads the speech, scores the moments and fills this list. If it
+              falls back to a stand-in transcript, it says so here.
             </p>
             <div className="work-empty-actions">
               <button type="button" className="btn primary" onClick={onAnalyze}>
@@ -197,7 +204,7 @@ export const Reel = memo(function Reel({
             <p>
               {isFiltered
                 ? 'Clear the filter and search to see the full reel again.'
-                : 'Every clip was blocked. Review the warnings above, then re-analyze with a stronger model.'}
+                : 'Every clip failed a check. Read the warnings above, then re-analyze with a stronger model.'}
             </p>
             <div className="work-empty-actions">
               {isFiltered ? (

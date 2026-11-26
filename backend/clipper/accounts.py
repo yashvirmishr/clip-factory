@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -231,12 +232,31 @@ def mark_synced(account: str, when: float | None = None) -> None:
 
 
 def delete_account(account: str) -> bool:
+    record = get_account(account)
+    if record is None:
+        return False
+    token = ""
+    try:
+        stored = load_tokens(account)
+        token = stored.access_token if stored is not None else ""
+    except secrets.SecretError:
+        token = ""
     with db.connect() as conn:
-        row = conn.execute("SELECT id FROM accounts WHERE id=?", (account,)).fetchone()
-        if row is None:
-            return False
         conn.execute("DELETE FROM accounts WHERE id=?", (account,))
     secrets.delete_secret(token_key(account))
+    if token and os.environ.get("CLIPPER_DISABLE_REVOKE") != "1":
+        # Local removal is the promise. Remote revocation is best effort: a
+        # provider outage must not keep a token on this machine.
+        try:
+            creds = load_provider_client(record.platform)
+            oauth.revoke(
+                record.platform,
+                token,
+                creds.get("client_id", ""),
+                creds.get("client_secret", ""),
+            )
+        except Exception:  # noqa: BLE001 - disconnect must still succeed locally
+            pass
     return True
 
 

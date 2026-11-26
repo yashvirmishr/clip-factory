@@ -2,6 +2,7 @@ import pytest
 
 from clipper.config import CaptionConfig
 from clipper.domain import ClipCandidate, Word
+from clipper.lang import display_width
 from clipper.pipeline.caption import CaptionWord, edit_pages, pages_for
 from clipper.pipeline.caption.group import caption_stats, group_words
 
@@ -213,3 +214,28 @@ def test_pages_for_falls_back_when_the_override_is_corrupt():
     clip = candidate()
     clip.caption_pages = [{"text": 3}]
     assert pages_for(clip) == group_words(clip.words)
+
+
+def test_cjk_pages_have_no_spaces_and_spend_the_column_budget():
+    text = "今天我们聊聊人工智能如何改变普通人的工作方式"
+    spec = [(char, i * 0.25, i * 0.25 + 0.24) for i, char in enumerate(text)]
+    pages = group_words(words(spec))
+    assert pages
+    # Joining Han tokens with spaces is what the old code did; it is not Chinese.
+    assert all(" " not in page.text for page in pages)
+    assert "".join(page.text for page in pages) == text
+    # Four glyphs per page (max_words) was a flicker page, not a caption.
+    assert all(len(page.words) > 4 for page in pages)
+    assert all(len(page.words) <= 22 for page in pages)
+    assert all(display_width(line) <= 22 for page in pages for line in page.lines)
+
+
+def test_cjk_sentence_end_closes_a_page():
+    spec = [
+        ("今天", 0.0, 0.4),
+        ("很好。", 0.4, 0.9),
+        ("然后", 0.95, 1.3),
+        ("再见。", 1.3, 1.8),
+    ]
+    pages = group_words(words(spec), CaptionConfig(max_words=6, cps_limit=100))
+    assert [page.text for page in pages] == ["今天很好。", "然后再见。"]

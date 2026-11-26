@@ -41,6 +41,8 @@ interface Props {
   sourceId: string
   clipId: string
   pages: CaptionPage[]
+  /** The family the renderer picked for this clip's script, from the backend. */
+  captionsFont?: string
   onNotify: (kind: 'ok' | 'error' | 'info', message: string) => void
 }
 
@@ -116,7 +118,13 @@ const PREVIEW_H = 300
  * or size that looks wrong here is wrong in the MP4 - there is no second
  * styling implementation to drift from the first.
  */
-export function SubtitleStudio({ sourceId, clipId, pages, onNotify }: Props) {
+export function SubtitleStudio({
+  sourceId,
+  clipId,
+  pages,
+  captionsFont,
+  onNotify,
+}: Props) {
   const [presets, setPresets] = useState<Preset[]>([])
   const [fonts, setFonts] = useState<string[]>([])
   const [preset, setPreset] = useState(getCaptionPreset)
@@ -178,6 +186,11 @@ export function SubtitleStudio({ sourceId, clipId, pages, onNotify }: Props) {
 
   const samplePages = pages.slice(0, 2)
   const scale = PREVIEW_H / 1920
+  // While the clip still renders the saved style, preview the family the burn
+  // will really use. A font the user just picked is previewed as picked.
+  const savedFont =
+    style && draft && draft.font === style.font && captionsFont ? captionsFont : draft?.font
+  const fallbackApplied = Boolean(savedFont && draft && savedFont !== draft.font)
 
   const save = async (applyToAll = false) => {
     if (!draft) return
@@ -243,7 +256,7 @@ export function SubtitleStudio({ sourceId, clipId, pages, onNotify }: Props) {
           <span className="label">Subtitle studio</span>
           <h3>Style this clip&apos;s captions</h3>
         </div>
-        <span className="pill numeric">{draft?.font ?? style?.font ?? '-'}</span>
+        <span className="pill numeric">{savedFont ?? '-'}</span>
       </header>
 
       <div className="section-body stack-12">
@@ -276,7 +289,7 @@ export function SubtitleStudio({ sourceId, clipId, pages, onNotify }: Props) {
                   paddingLeft: Math.max(4, 90 * scale),
                   paddingRight: Math.max(4, 90 * scale),
                   color: draft.primary,
-                  fontFamily: `${draft.font}, sans-serif`,
+                  fontFamily: `${savedFont ?? draft.font}, sans-serif`,
                   fontSize: Math.max(9, draft.size * scale),
                   fontWeight: style?.bold ? 800 : 600,
                   WebkitTextStroke: `${Math.max(0, draft.outline_width * scale)}px ${draft.outline}`,
@@ -293,6 +306,10 @@ export function SubtitleStudio({ sourceId, clipId, pages, onNotify }: Props) {
               </div>
               <span className="subtitle-preview-tag">9:16 preview</span>
             </div>
+
+            {fallbackApplied ? (
+              <p className="field-hint">This script burns in {savedFont}; the preset family has no glyphs for it.</p>
+            ) : null}
 
             <div className="subtitle-controls">
               <Field label="Font">

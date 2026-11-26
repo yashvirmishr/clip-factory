@@ -61,10 +61,13 @@ The LLM adapter talks to a local `llama-server` over HTTP and requests a constra
 
 Rendering is a separate job and a separate module tree:
 
-- `render/ass.py` owns the five caption styles and ASS generation, including karaoke timing.
+- `render/ass.py` owns the five caption styles and ASS generation, including karaoke timing and script-aware fonts.
 - `render/ffmpeg.py` builds the filter graph and encoder arguments.
 - `render/__init__.py` resolves framing, groups caption pages, computes a cache key and runs ffmpeg.
-- `pipeline/framing.py` plans the auto crop from motion and skin density. The render uses that plan; `GET /api/sources/{sid}/clips/{cid}/framing` exposes the same plan for inspection before rendering.
+- `lang.py` detects the transcript's script, joins tokens without spaces where the script requires it, measures display width and picks a font family per script.
+- `pipeline/framing.py` plans the auto crop from motion and skin density; when the optional face tier is available, `pipeline/faces.py` detects faces per shot, links them into tracks and scores mouth activity so the crop follows the person talking. The render uses that plan; `GET /api/sources/{sid}/clips/{cid}/framing` exposes the same plan for inspection before rendering.
+
+The face tier is opt-in twice over: the `opencv-python-headless` package (see `requirements-optional.txt`) and the **Face tracking (YuNet)** model in Models. When either is missing, `GET /api/framing/status` says which, and framing falls back to the activity grid instead of failing.
 
 The render cache is content-addressed by clip, preset, resolved framing and a digest of caption pages and caption style. A hook edit does not change the cache key because the hook is not part of the picture; a restyle does, because the pixels change.
 
@@ -76,12 +79,14 @@ The render cache is content-addressed by clip, preset, resolved framing and a di
 |---|---|
 | `otio.py` | OpenTimelineIO JSON |
 | `xmeml.py` | FCP7 XML |
+| `fcpxml.py` | FCP X XML (Final Cut Pro 10.6.8+) |
 | `edl.py` | CMX 3600 EDL |
-| `srt.py` | Per-clip SRT |
+| `srt.py`, `vtt.py` | Per-clip caption sidecars |
+| `bake.py` | Rendered MP4s, sidecars and a manifest in one folder |
 | `bundle.py` | Zip with all of the above and a manifest |
 | `timecode.py` | Shared frame and timecode conversion |
 
-Media is referenced by absolute path. The exporters do not copy source files.
+Media is referenced by absolute path. The exporters do not copy source files. Baking is the exception in the other direction: it renders every ranked clip into one folder and reuses the render cache, so it does not render a second time.
 
 ## Learning loop
 

@@ -69,6 +69,17 @@ def models_dir() -> Path:
     return path
 
 
+def face_model_path() -> Path:
+    """Where the face model lives once downloaded, configured or not.
+
+    Framing reads this when framing.face_model is empty, so installing the
+    model is enough to try it - nobody has to edit config.json.
+    """
+    entry = next((model for model in hardware.MODELS if model["kind"] == "face"), None)
+    name = entry["filename"] if entry else "face_detection_yunet_2023mar.onnx"
+    return models_dir() / name
+
+
 def _tier_rank(tier: str) -> int:
     return {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}.get(tier, 0)
 

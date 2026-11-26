@@ -1,4 +1,5 @@
 import type {
+  AccountPost,
   Analysis,
   Captions,
   CaptionStyle,
@@ -12,12 +13,16 @@ import type {
   LearnState,
   ModelsPayload,
   Peaks,
+  PersonalState,
   Readiness,
   RunnerProbe,
   RunnerSettings,
   SourceInfo,
   SourcePreview,
   SourceRow,
+  Suggestion,
+  SuggestionPreview,
+  WeeklyState,
   LanguageEntry,
   TracksPayload,
   Verdict,
@@ -73,7 +78,12 @@ export function pollUntilDone(
     stop = watchJob(
       jobId,
       (job) => {
+        // Every frame arrives here, including "queued". Resolving on the first
+        // one hands the caller a job that has not failed yet - which is how a
+        // dead download used to report "Added the video".
+        if (!TERMINAL.has(job.status)) return
         clearTimeout(timeout)
+        stop?.()
         resolve(job)
       },
       intervalMs,
@@ -179,7 +189,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `${response.status} ${response.statusText}`
     try {
       const body = await response.json()
-      if (body?.detail) detail = String(body.detail)
+      const payload = body?.detail
+      if (typeof payload === 'string') detail = payload
+      else if (payload && typeof payload === 'object') {
+        const issues = Array.isArray(payload.issues)
+          ? payload.issues.map((issue: { remedy?: string; message?: string }) => issue.remedy || issue.message || '').filter(Boolean)
+          : []
+        detail = [payload.message || 'The request was rejected.', ...issues].join(' ')
+      }
     } catch {
       /* non-JSON error body */
     }
@@ -425,7 +442,7 @@ export const api = {
         connected: number
         adapter: boolean
       }>
-      secret_store: { available?: boolean; backend?: string; hint?: string }
+      secret_store: { available?: boolean; backend?: string; detail?: string }
     }>('/accounts'),
 
   connectAccount: (platform: string, clientId: string, clientSecret: string, redirectUri = '') =>
@@ -439,6 +456,64 @@ export const api = {
 
   disconnectAccount: (accountId: string) =>
     request<{ ok: boolean }>(`/accounts/${accountId}`, { method: 'DELETE' }),
+
+  syncAccount: (accountId: string) =>
+    request<Record<string, unknown>>(`/accounts/${accountId}/sync`, { method: 'POST' }),
+
+  accountOverview: (accountId: string) =>
+    request<Record<string, unknown>>(`/accounts/${accountId}/overview`),
+
+  accountPosts: (accountId: string, limit = 100) =>
+    request<{ posts: AccountPost[]; baseline: Record<string, unknown> }>(
+      `/accounts/${accountId}/posts?limit=${limit}`,
+    ),
+
+  personalState: (accountId = '') =>
+    request<PersonalState>(`/learn/personal${accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''}`),
+
+  trainPersonal: (accountId = '') =>
+    request<Record<string, unknown>>(
+      `/learn/personal/train${accountId ? `?account_id=${encodeURIComponent(accountId)}` : ''}`,
+      { method: 'POST' },
+    ),
+
+  activatePersonal: (version: string) =>
+    request<Record<string, unknown>>(`/learn/personal/${encodeURIComponent(version)}/activate`, {
+      method: 'POST',
+    }),
+
+  rollbackPersonal: () =>
+    request<PersonalState>('/learn/personal/rollback', { method: 'POST' }),
+
+  weeklyStatus: () => request<WeeklyState>('/learning/weekly'),
+
+  runWeekly: () => request<WeeklyState>('/learning/weekly/run', { method: 'POST' }),
+
+  suggestions: (sourceId: string, clipId: string) =>
+    request<{ suggestions: Suggestion[] }>(`/sources/${sourceId}/clips/${clipId}/suggestions`),
+
+  previewSuggestion: (sourceId: string, clipId: string, suggestionId: string) =>
+    request<{ suggestion: Suggestion; preview: SuggestionPreview }>(
+      `/sources/${sourceId}/clips/${clipId}/suggestions/${suggestionId}/preview`,
+      { method: 'POST' },
+    ),
+
+  applySuggestion: (sourceId: string, clipId: string, suggestionId: string) =>
+    request<{ suggestion: Suggestion; candidate: Clip | null; changed: boolean }>(
+      `/sources/${sourceId}/clips/${clipId}/suggestions/${suggestionId}/apply`,
+      { method: 'POST' },
+    ),
+
+  undoSuggestion: (sourceId: string, clipId: string, suggestionId: string) =>
+    request<{ suggestion: Suggestion; candidate: Clip | null }>(
+      `/sources/${sourceId}/clips/${clipId}/suggestions/${suggestionId}/undo`,
+      { method: 'POST' },
+    ),
+
+  dismissSuggestion: (sourceId: string, clipId: string, suggestionId: string) =>
+    request<Suggestion>(`/sources/${sourceId}/clips/${clipId}/suggestions/${suggestionId}/dismiss`, {
+      method: 'POST',
+    }),
 
   validatePublish: (body: {
     platform: string

@@ -41,7 +41,7 @@ Caption pages themselves are grouped elsewhere: at most four words, 22 character
 | **Blur pad** | Fits the whole frame inside the vertical canvas over a blurred fill. Nothing is cropped. |
 | **Crop** | Centre-crops to fill the canvas. No tracking. |
 
-Auto works in two tiers. By default it measures motion and skin density on a small grid, then pans linearly between shot centres. If a face model is configured (`framing.face_model` plus the optional OpenCV package), it instead tracks faces at 4 fps, picks the largest speaking face in each shot and follows it — still one position per shot, smoothed by a deadband so a wobbling face does not become a handheld camera. When faces cannot be tracked, the motion tracker answers, and the render panel says which one is in use through **Framing status**. No face model ships with the app and nothing in the default path imports OpenCV.
+Auto works in two tiers. By default it measures motion and skin density on a small grid, then pans linearly between shot centres. Install the face tier (`pip install -r requirements-optional.txt` and **Face tracking (YuNet)** in Models; an explicit `framing.face_model` also works) and it instead tracks faces at 4 fps, picks the largest speaking face in each shot and follows it — still one position per shot, smoothed by a deadband so a wobbling face does not become a handheld camera. When faces cannot be tracked because the package or model is missing, the motion tracker answers, and the render panel says which one is in use through **Framing status**. Nothing in the default path imports OpenCV.
 
 Both tiers are deliberately one decision per shot rather than a per-frame follow, which would wobble on every gesture.
 
@@ -118,7 +118,7 @@ An animated crop is written into the rendered file, not into the XML. Premiere, 
 
 ### Import advice
 
-Try OTIO first, then FCP7 XML, then EDL. This is the order the bundle README recommends. None of these formats is a guarantee on every NLE version; import one test reel before committing to a delivery workflow.
+Try OTIO first, then FCP X XML (Final Cut Pro 10.6.8+), then FCP7 XML, then EDL. This is the order the bundle README recommends. None of these formats is a guarantee on every NLE version; import one test reel before committing to a delivery workflow.
 
 ## Baking the reel
 

@@ -20,6 +20,8 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | [The Workspace](The-Workspace.md) | Panels, tabs, workspaces, shortcuts and themes |
 | [Reviewing Clips](Reviewing-Clips.md) | Read the reel, approve or reject, edit hooks and trims |
 | [Rendering and Export](Rendering-and-Export.md) | Captions, framing, MP4 output and NLE handoff |
+| [Publishing](Publishing.md) | Upload to YouTube or X with your own developer app |
+| [Learning from your posts](Learning.md) | Connected accounts, engagement labels, the weekly model and coach |
 | [Themes](Themes.md) | The theme atelier, built-in themes and authoring |
 | [Architecture](Architecture.md) | How the frontend, API and pipeline fit together |
 | [API Reference](API-Reference.md) | HTTP endpoints, jobs and data shapes |
@@ -35,7 +37,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 4. **Review.** Approve, reject with a reason, rewrite the hook, nudge the trim.
 5. **Check the monitor.** Captions, 9:16 guides, loop and frame stepping sit in one transport.
 6. **Render.** Pick a caption preset and framing mode. The MP4 is written locally.
-7. **Hand off.** Export a bundle, OTIO, FCP7 XML or EDL with SRT captions.
+7. **Hand off.** Bake finished MP4s, or export a bundle with OTIO, FCP7 XML, FCP X XML and SRT/VTT captions.
 
 ## What is in the box
 
@@ -45,9 +47,10 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | Analysis | whisper.cpp or imported subtitles, sentence-bounded windows, scene-cut snapping, deterministic gates, optional LLM shortlist scoring |
 | Review | Ranked reel, filters, search, grid/list views, scorecard, signals, gates, hook editing, trim controls |
 | Monitor | Source preview, caption overlay, hook overlay, 9:16 guides, loop, frame and second stepping |
-| Finish | Five caption presets, three framing strategies, libass burn-in, -14 LUFS mix, 1080 × 1920 MP4 |
-| Handoff | Zip bundle, OTIO, FCP7 XML, EDL, SRT; media referenced by absolute path |
-| Learning | Local decision log, personal re-ranker after 40 decisions, few-shot memory, style profile, dataset export |
+| Finish | Five caption presets, three framing strategies, optional face tracking, libass burn-in, -14 LUFS mix, 1080 × 1920 MP4 |
+| Handoff | Zip bundle, OTIO, FCP7 XML, FCP X XML, EDL, SRT/VTT; bake to MP4s; media referenced by absolute path |
+| Publish | Direct YouTube or X upload from a rendered MP4, durable retry queue, bring-your-own OAuth client |
+| Learning | Local decision log and taste re-ranker, connected-account engagement analytics, gated weekly personal model, evidence-based coach suggestions |
 | Interface | Collapsible, resizable panels, floating inspector, three workspace presets, command palette, context menus, six built-in themes |
 
 ## Local by default

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
 import secrets as random_secrets
 import threading
 import time
@@ -18,8 +17,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-
-from .. import secrets
 
 META_VERSION = "v23.0"
 DEFAULT_REDIRECT = "http://127.0.0.1:8756/api/connections/callback"
@@ -292,6 +289,10 @@ def _request_token(
     payload = dict(data)
     if cfg.client_auth == "basic_if_secret" and client_secret:
         auth: tuple[str, str] | None = (client_id, client_secret)
+        # One client authentication method, not two: providers reject requests
+        # that carry both Basic credentials and client_secret in the body.
+        payload.pop("client_id", None)
+        payload.pop("client_secret", None)
     else:
         auth = None
         if cfg.client_id_param not in payload:
@@ -373,21 +374,31 @@ def refresh(
     return _request_token(cfg, data, client_id, client_secret, client)
 
 
-def revoke(platform: str, token: str, client: httpx.Client | None = None) -> bool:
+def revoke(
+    platform: str,
+    token: str,
+    client_id: str = "",
+    client_secret: str = "",
+    client: httpx.Client | None = None,
+) -> bool:
     """Best-effort revocation. Returns False when the provider has no endpoint."""
     cfg = provider(platform)
+    auth: tuple[str, str] | None = None
     if platform == "youtube":
         url = "https://oauth2.googleapis.com/revoke"
         data = {"token": token}
     elif platform == "x":
         url = "https://api.x.com/2/oauth2/revoke"
         data = {"token": token, "token_type_hint": "access_token"}
+        # X requires client authentication on the revoke endpoint.
+        if client_secret:
+            auth = (client_id, client_secret)
     else:
         return False
     owned = client is None
     client = client or httpx.Client(timeout=20.0)
     try:
-        response = client.post(url, data=data)
+        response = client.post(url, data=data, auth=auth)
     finally:
         if owned:
             client.close()

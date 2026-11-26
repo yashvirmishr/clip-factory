@@ -1,40 +1,56 @@
 # Publishing
 
-Publishing sends a finished clip to YouTube from inside Clip Factory. It is the only flow that leaves the machine, and it is the only one that needs an account of your own.
+Publishing sends a finished clip to **YouTube** or **X** from inside Clip Factory. It is the only flow that leaves the machine (apart from URL import, model downloads and analytics sync), and it needs a developer app of your own. There is no hosted OAuth relay in the middle.
 
 ## What you need
 
-1. A rendered clip — publishing uploads the finished MP4, never the source. Render it in **Output → Render** first; the publish section fills in once the render finishes.
-2. A Google OAuth client. Publishing does not ship credentials. In Google Cloud, create an OAuth client of type **Web application** and add this exact redirect URI:
+1. A rendered clip — publishing uploads the finished MP4, never the source. Render it in **Output → Render** first.
+2. A developer app for the platform you want. Publishing ships no client credentials.
+3. An operating-system credential store. Tokens go to Windows Credential Manager, macOS Keychain or Secret Service through `keyring`. If the store is unavailable, the Accounts tab says so and connecting stays off rather than writing tokens to disk.
 
-   ```text
-   http://127.0.0.1:8756/api/connections/callback
-   ```
+## YouTube
 
-   Enable the **YouTube Data API v3** on the same project.
-3. An operating-system credential store. Tokens go to the OS keyring (Windows Credential Manager, macOS Keychain, Secret Service on Linux). If the store is unavailable, the panel says so and stays off rather than writing tokens to disk.
+In Google Cloud, create an OAuth client of type **Web application** and add this exact redirect URI:
+
+```text
+http://127.0.0.1:8756/api/connections/callback
+```
+
+Enable **YouTube Data API v3** and **YouTube Analytics API** on the project. The app asks for `youtube.upload`, `youtube.readonly` and `yt-analytics.readonly`.
+
+## X
+
+In the X developer portal, create an OAuth 2.0 **confidential** client and add the same callback URI:
+
+```text
+http://127.0.0.1:8756/api/connections/callback
+```
+
+The app asks for `tweet.read`, `tweet.write`, `users.read`, `media.write` and `offline.access`. App permissions and the account's plan must allow posting and reading public metrics. X bills per API use; check the current plan before uploading a batch.
 
 ## Connecting
 
-Paste the client ID and secret into the publish section and press **Connect YouTube**. The consent page opens in a browser tab; approving it lands on the loopback callback, which stores the account and shows a confirmation page. Return to the app — the account appears in the panel. The client secret is stored in the credential store, not in the app's config.
+Open **Project → Accounts**, choose YouTube or X, paste the client ID and secret, and press **Connect**. The consent page opens in a browser tab. Approving it lands on the loopback callback, stores the account and shows a confirmation page. Return to Clip Factory; the Accounts tab refreshes when the window regains focus.
 
-If the consent page is closed early or the code expires (ten minutes), press **Connect YouTube** again. **Disconnect** revokes and removes the account.
+The client secret and token bundle are stored in the credential store, not in SQLite or the config file. A code expires after ten minutes. **Disconnect** revokes the token where the provider supports revocation and removes the local account. TikTok and Instagram are listed so the boundary is visible, but their upload adapters are not enabled yet.
 
 ## The draft
 
 | Field | Notes |
 |---|---|
-| **Title** | Prefilled from the clip's title, then the hook. Capped at 100 characters. |
-| **Description** | Prefilled from the hook. Capped at the platform's limit (5000 for YouTube). |
-| **Hashtags** | Space- or comma-separated, `#` optional. Up to 15 are kept. |
-| **Visibility** | Private, unlisted or public. Private is the default on purpose. |
+| **Title** | YouTube only. Prefilled from the clip's title, then the hook. Capped at 100 characters. |
+| **Post text / description** | Prefilled from the hook. YouTube allows 5000 characters; X allows 280 after hashtags. |
+| **Hashtags** | Space- or comma-separated, `#` optional. YouTube keeps 15; X keeps 10. X is public only. |
+| **Visibility** | YouTube: private, unlisted or public. X: public. Private is the YouTube default on purpose. |
 | **Audience** | YouTube requires a made-for-kids declaration on every upload; the toggle is that declaration. |
 
-**Check against YouTube limits** validates the draft against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does.
+**Check limits** validates against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does.
+
+YouTube Shorts are capped at three minutes and must be vertical or square. X accepts a longer file at the API level, but this app caps the draft at 140 seconds so it stays a short. The server, not the browser, is the authority; the UI shows the returned issues.
 
 ## The queue
 
-Uploads are queued jobs, so closing the panel does not cancel one. Recent uploads show their state:
+Uploads are durable jobs in SQLite, so closing the panel does not cancel one. Recent uploads show their state:
 
 - **queued** — waiting for the single background worker;
 - **running** — uploading;
@@ -42,18 +58,20 @@ Uploads are queued jobs, so closing the panel does not cancel one. Recent upload
 - **failed** — the reason, with **Retry**;
 - **cancelled** — stopped before upload finished, retryable.
 
-Uploads are retried up to three times with backoff. A failed job keeps the file path, so a retry does not need a re-render.
+Retryable failures back off up to an hour and are retried up to three times. A scheduler checks due jobs every 20 seconds, so a transient 429 or 503 does not need the app to be restarted. A job interrupted by a crash is returned to `retry` on the next launch with a message saying the app stopped; the finalize step checks with the platform before deciding whether the bytes already landed. The file path is kept, so retrying does not need a re-render.
+
+Only one upload runs at a time, by the same resource governor that serializes analysis and rendering.
 
 ## What is not here
 
-- **Only YouTube** is enabled. The account, limit and queue code has entries for X, TikTok and Instagram, but the upload adapters are not implemented; the API refuses those platforms with a clear message. Export and share locally instead.
-- **No scheduling calendar.** A `scheduled_at` field exists in the API and is passed through to YouTube as `publishAt`, but the UI does not expose a date picker.
-- **No analytics pull-in.** Views and retention are not imported; the personal-performance tables exist, but nothing here fills them.
+- **No TikTok or Instagram upload.** Their OAuth entries exist, but `POST /api/publish` refuses them with a clear message. Use Export & share for now.
+- **No scheduling calendar.** A `scheduled_at` field exists and YouTube `publishAt` is passed through, but the UI does not expose a date picker.
 - **No multi-platform posting in one action.** One draft, one account, one upload.
 - **No title/hook generation for the platform.** Editing the draft text is manual; the hook and title come from the analysis.
+- **No hosted callback.** Each user brings a developer app. That keeps tokens on the machine and keeps the project free of a credential relay.
 
-See [Limitations](Limitations.md) for the wider list.
+Views and engagement are pulled back by the weekly loop or the **Sync** button on the Accounts tab; see [Learning from your posts](Learning.md).
 
 ---
 
-Back to [Rendering and Export](Rendering-and-Export.md).
+Back to [Learning from your posts](Learning.md) · [Rendering and Export](Rendering-and-Export.md).

@@ -44,26 +44,29 @@ Stop and resume any time; progress is saved. The tour is also under
 |---|---|
 | Ingest: local file or VOD URL (yt-dlp), ffprobe, streamed audio, peak pyramid | working |
 | Transcription: whisper.cpp adapter + SRT/VTT import + deterministic stub | working |
-| Languages: per-ingest language picker, translate-to-English, script-aware text handling | working |
+| Languages: per-ingest language picker, multilingual Whisper models, script-aware captions and fonts, translate-to-English | working |
 | Word alignment (monotonic clamp, silence snapping, outlier repair) | working |
 | Signals, percentile fusion, sentence-aligned windows | working |
 | Chat replay: Twitch VOD fetch, coverage report, chat signal | working |
 | Quality gates + visible scorecard + reel quality score | working |
 | LLM re-ranking with GBNF-constrained JSON, plus a labelled stub scorer | working |
 | Diversity/overlap/dedupe selection | working |
-| Caption page grouping with CPS + line-budget warnings | working |
+| Caption page grouping with CPS + line-budget warnings, script-aware line breaking | working |
 | Subtitle studio: per-clip preset and overrides, apply to all, reset | working |
 | Scene-cut detection, window snapping, shot boundaries | working |
-| Auto reframe: per-shot 9:16 crop from motion + skin; optional face model | working |
+| Auto reframe: per-shot 9:16 crop from motion + skin; optional face model installable in Models | working |
 | Trim in/out with transcript, captions and gates kept in sync | working |
-| Feedback loop: decision log → personal re-ranker → few-shot memory → style profile | working |
+| Feedback loop: decision log → taste re-ranker → few-shot memory → style profile | working |
+| Connected accounts: YouTube/X OAuth, OS credential store, post + engagement sync | working |
+| Weekly learning: engagement-rate labels, gated personal model, promote/rollback | working |
+| Coach: evidence-backed clip suggestions with preview, apply and undo | working |
 | Hardware probe + tier advisory + model recommendations | working |
-| Model manager: resumable downloads in-app, activation that survives restart | working |
+| Model manager: resumable downloads in-app (multilingual speech, scoring, face tracking), activation that survives restart | working |
 | Desktop shell (Electron + Python sidecar, orphan-proof) | working |
 | ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
-| Editor handoff: OTIO, FCP7 XML, CMX 3600 EDL, SRT, zip bundle | working |
-| Publishing: YouTube upload with your own OAuth client, queue, retry, cancel | working |
+| Editor handoff: OTIO, FCP7 XML, FCP X XML, CMX 3600 EDL, SRT/VTT, bake-to-MP4s, zip bundle | working |
+| Publishing: YouTube/X upload with your own OAuth client, durable queue, retry, cancel | working |
 | Gold-set pick-quality harness + CI regression gate | working |
 | Installer, bundled binaries, LICENSE, real-VOD gold sets | **not yet built** |
 
@@ -136,6 +139,8 @@ quality score, so "is this better?" is a number and not a vibe.
 # 1. Python sidecar
 py -3 -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
+# Optional: face-aware framing
+./.venv/Scripts/python.exe -m pip install -r requirements-optional.txt
 
 # 2. Web UI
 cd web && npm install && cd ..
@@ -162,6 +167,15 @@ Then in the UI: **Generate a demo stream → Analyze**, or paste a path to a rea
 VOD. With no model installed the app runs the deterministic stub scorer and says
 so on every clip.
 
+### Models and languages
+
+Open **Models** to download what this machine can run. To transcribe anything
+other than English, install a **multilingual** Whisper model (`Whisper base`,
+`small`, `medium` or `large-v3-turbo`) rather than an `.en` model: an `.en` model
+can only produce English words, whatever language is selected. Face tracking is
+also a model row, but it also needs the optional OpenCV package above before the
+app can use it.
+
 ### VOD URLs
 
 Paste a Twitch or YouTube URL into the same field as a file path. It runs as a
@@ -176,6 +190,24 @@ accident.
 
 This needs `yt-dlp` (`pip install -r requirements.txt`). Without it the app still
 runs on local files and the URL route says exactly what to install.
+
+Some archives are not served to a logged-out client at all: Twitch returns no
+playback token for them, which is what an age-restricted or subscriber-only VOD
+looks like from the outside, and occasionally what a VOD still being prepared
+looks like too. The download then fails with an explanation rather than a stack
+trace. The way through is to sign in the way yt-dlp expects:
+
+1. Export your `twitch.tv` cookies as a Netscape-format `cookies.txt` while
+   signed in (any cookies.txt browser extension will do).
+2. Save it in the app's data folder (`data` by default), or point
+   `CLIPPER_YTDLP_COOKIES` at wherever you keep it.
+3. Add the URL again. Nothing else changes: every download uses that file
+   automatically when it exists.
+
+The cookies are read only by yt-dlp and never leave the machine. They are only
+needed for archives that refuse anonymous playback. If a VOD still refuses with
+cookies in place, the account has to be one that can play it in a browser:
+age-confirmed, and subscribed if the archive is subscriber-only.
 
 ### Chat replay
 
@@ -351,18 +383,20 @@ Framing has three modes:
 
 ### How auto framing decides where to look
 
-No face model ships by default, so the subject is located with two signals
-measured on a 96×54 grid: **frame-to-frame motion per column** (faces, hands,
-gameplay action) and **skin-tone density per column** (keeps a talking head
-centred while it is still). Scores are normalised across the whole clip, so a
-quiet shot and a loud shot are comparable instead of each renormalising to fill
-the range.
+With nothing installed, the subject is located with two signals measured on a
+96×54 grid: **frame-to-frame motion per column** (faces, hands, gameplay action)
+and **skin-tone density per column** (keeps a talking head centred while it is
+still). Scores are normalised across the whole clip, so a quiet shot and a loud
+shot are comparable instead of each renormalising to fill the range.
 
-If you point `framing.face_model` at a YuNet ONNX file and have OpenCV
-installed, an optional pass tracks faces per shot instead;
-`GET /api/framing/status` reports which path is active and why. Neither path
-does speaker diarization, so a two-person wide shot can still follow activity
-rather than the person talking.
+For face tracking, install the optional OpenCV package
+(`pip install -r requirements-optional.txt`) and download **Face tracking
+(YuNet)** in Models. The render then detects faces per shot, picks the subject
+by mouth activity and size, and pans between their positions. It needs both
+halves: `GET /api/framing/status` reports which path is active and what is
+missing. An explicit `framing.face_model` path still wins over the managed
+model. Neither path does speaker diarization, so a two-person wide shot can
+still follow activity rather than the person talking.
 
 The output is a **virtual camera**: one crop centre per shot, panned linearly
 between shots, emitted as a piecewise-linear expression that ffmpeg evaluates per
@@ -409,14 +443,20 @@ somebody will want to change, the handoff is a bundle:
 |---|---|
 | `reel.otio` | OpenTimelineIO — Resolve, Premiere (adapter), FilmCraft |
 | `reel.xml` | FCP7 XML — native import in Premiere and Resolve |
+| `reel.fcpxml` | FCP X XML — Final Cut Pro 10.6.8+ and Premiere 2023+ |
 | `reel.edl` | CMX 3600 — the fallback that cannot go offline |
-| `captions/*.srt` | the pages, so burned-in text stays editable |
+| `captions/*.srt`, `captions/*.vtt` | the pages, so burned-in text stays editable |
 | `manifest.json` | in/out, frames, timecode, hook, score, framing knots |
 | `render/*.mp4` | any clips already rendered, included when present |
 
-Four formats because no single one is accepted everywhere, and one `ClipSpec`
-behind all four. Media is **referenced by absolute path, never copied**: a
+Five formats because no single one is accepted everywhere, and one `ClipSpec`
+behind all of them. Media is **referenced by absolute path, never copied**: a
 two-hour VOD inside a zip is a mail attachment nobody can send.
+
+When the edit is done, **Bake reel to MP4s** renders every ranked clip with its
+captions burned in and writes the MP4s, caption sidecars and a manifest to one
+folder per source; the folder can be opened from the app. Baking reuses the
+render cache instead of rendering a second time.
 
 The part that matters is the test called `test_every_format_agrees_on_the_timeline`.
 Three backends derive the same clip's timing independently — ffmpeg's ASS events,
@@ -470,6 +510,8 @@ desktop/                  Electron shell: spawns + health-checks + tree-kills th
 backend/clipper/
   api.py                  FastAPI; also serves web/dist in production
   service.py              the pipeline as one resumable function
+  models.py               model manager: manifest, resumable download, activation
+  lang.py                 script detection, token joining, display width, fonts
   pipeline/
     media.py              ffprobe, streamed audio, RMS/flux/ZCR, peak pyramid
     asr.py                whisper.cpp (-oj -ml 1 --vad -fa), SRT/VTT import, stub
@@ -479,6 +521,7 @@ backend/clipper/
     scenes.py             keyframe scene cuts, chapters, shot spans
     chat.py               Twitch VOD chat replay (GraphQL, paged) -> chat signal
     framing.py            96x54 activity grid -> per-shot virtual camera path
+    faces.py              optional YuNet face detection, tracks, mouth activity
     gates.py              G1 input gates, G2 structural gates
     scorecard.py          grounding check + visible scorecard
     select.py             overlap / duplicate / diversity selection
@@ -489,8 +532,10 @@ backend/clipper/
     spec.py               ClipSpec: the clip as every backend sees it
     otio.py               OpenTimelineIO timeline
     xmeml.py              FCP7 XML sequence
+    fcpxml.py             FCP X XML (Final Cut Pro 10.6.8+)
     edl.py                CMX 3600 edit decision list
-    srt.py                caption sidecars
+    srt.py, vtt.py        caption sidecars
+    bake.py               bake the reel to MP4s + manifest in one folder
     bundle.py             manifest + zip of all of the above
   llm/                    GBNF grammar, prompts, llama-server + stub scorers
   learn/                  decision log, re-ranker, few-shot memory, style profile
@@ -515,7 +560,7 @@ imports and the Twitch chat fetch you ask for, all opt-in.
    this is a convenience, not a capability.
 3. **Packaging** — no installer, no bundled binaries, no LICENSE: it runs from a
    checkout with Python installed and nothing else.
-4. **Speaker-aware framing** — the reframer tracks motion and skin, so on a
-   two-person podcast it follows activity rather than the person talking. A YuNet
-   ONNX pass plus mouth-activity scoring is the documented upgrade, and
-   `CropPlan` is already the interface it would plug into.
+4. **Speaker-aware framing** — face tracking with mouth-activity scoring is in
+   place, but it follows the most active face rather than a known speaker. True
+   diarization (who is talking) is the next step; `CropPlan` is the interface it
+   would plug into.

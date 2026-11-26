@@ -213,6 +213,8 @@ export interface Captions {
   clip_id: string
   pages: CaptionPage[]
   stats: { pages: number; mean_cps: number; warnings: number }
+  /** The family the renderer picks for this script; previews use it. */
+  font?: string
   edited?: boolean
 }
 
@@ -250,11 +252,15 @@ export interface FramingStatus {
   engine: string
   model: string
   hint: string
+  cv2?: boolean
+  model_installed?: boolean
+  configured?: boolean
+  model_id?: string
 }
 
 export interface HardwareModel {
   id: string
-  kind: 'asr' | 'llm' | 'vad'
+  kind: 'asr' | 'llm' | 'vad' | 'face'
   label: string
   size_gb: number
   min_tier: string
@@ -367,3 +373,96 @@ export interface Readiness {
   scoring: { built_in: boolean; runner: RunnerSettings }
   models: { dir: string; available_gb: number }
 }
+
+export interface SuggestionEvidence {
+  quote: string
+  start: number | null
+  end: number | null
+  metric: string
+  value: unknown
+  label: string
+}
+
+export interface Suggestion {
+  id: string
+  source_id: string
+  clip_id: string
+  kind: string
+  severity: 'warn' | 'info'
+  title: string
+  why: string
+  evidence: SuggestionEvidence[]
+  fix: string
+  auto_fixable: boolean
+  action: Record<string, unknown>
+  status: 'open' | 'applied' | 'dismissed' | 'resolved'
+}
+
+export interface SuggestionPreview {
+  type: 'trim' | 'hook' | 'none'
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+  before_text: string
+  after_text: string
+  duration_s?: number
+}
+
+export interface PersonalModelState {
+  version: string
+  active: boolean
+  created_at: number
+  data_window: string
+  metrics: Record<string, number | string>
+  feature_importance: Record<string, number>
+}
+
+export interface PersonalState {
+  ready: boolean
+  posts: number
+  positives: number
+  negatives: number
+  min_posts: number
+  min_per_class: number
+  min_auc_gain: number
+  blend_cap: number
+  active: PersonalModelState | null
+  history: PersonalModelState[]
+}
+
+export interface WeeklyState {
+  last_run: number
+  next_run: number
+  due: boolean
+  interval_days: number
+  results: Array<{
+    account_id: string
+    platform: string
+    display_name: string
+    ok: boolean
+    new_posts?: number
+    labels?: { labeled: number; positives: number; negatives: number; median: number }
+    error?: string
+  }>
+  training: Record<string, unknown>
+  running: boolean
+}
+
+export interface AccountPost {
+  id: string
+  account_id: string
+  platform_post_id: string
+  url: string
+  title: string
+  caption: string
+  published_at: number
+  duration_s: number
+  hashtags: string[]
+  features: Record<string, number>
+  metrics: Record<string, number | null>
+  composite: number | null
+  engagement_rate: number
+  label: number | null
+  origin: string
+  captured_at: number
+}
+

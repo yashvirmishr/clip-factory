@@ -134,7 +134,9 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
                   ? 'ready'
                   : speech.whisper_cli
                     ? 'needs a model'
-                    : 'needs the speech program'}
+                    : speech.model
+                      ? 'needs the speech program'
+                      : 'needs setting up'}
               </span>
             </div>
             <p>
@@ -262,13 +264,11 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
             </div>
           ) : null}
 
-          <div className="setup-runner">
-            <div className="setup-runner-head">
-              <span className="tour-eyebrow">Still missing - the speech program</span>
-            </div>
-            {speech.whisper_cli ? (
-              <p className="setup-small">Found it. Press Continue.</p>
-            ) : (
+          {speech.whisper_cli ? null : (
+            <div className="setup-runner">
+              <div className="setup-runner-head">
+                <span className="tour-eyebrow">Still missing: the speech program</span>
+              </div>
               <>
                 <p className="setup-small">
                   Download whisper.cpp once and put <b>whisper-cli.exe</b> in this folder:
@@ -301,8 +301,8 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
                   </button>
                 </div>
               </>
-            )}
-          </div>
+            </div>
+          )}
 
           <p className="setup-small">
             Rather not download anything? Open a video that already has .srt or .vtt subtitles and

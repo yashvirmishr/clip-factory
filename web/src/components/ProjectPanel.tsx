@@ -4,6 +4,7 @@ import type { Analysis, LearnState, SourceRow } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Tabs } from '../workspace/Tabs'
 import { IconButton } from '../workspace/ui'
+import { AccountsPanel } from './AccountsPanel'
 import { LearningPanel } from './bits'
 
 interface ProjectPanelProps {
@@ -13,9 +14,9 @@ interface ProjectPanelProps {
   analysis: Analysis | null
   busy: boolean
   compact: boolean
-  tab: 'project' | 'insights'
+  tab: 'project' | 'insights' | 'accounts'
   ingestPath: string
-  onTab: (tab: 'project' | 'insights') => void
+  onTab: (tab: 'project' | 'insights' | 'accounts') => void
   onSelect: (source: SourceRow) => void
   onIngestPath: (value: string) => void
   onIngest: () => void
@@ -24,6 +25,7 @@ interface ProjectPanelProps {
   onOpenSetup: () => void
   onSourceMenu: (source: SourceRow, position: { x: number; y: number }) => void
   onCollapse: () => void
+  onNotify: (kind: 'ok' | 'error' | 'info', message: string) => void
 }
 
 function SourceThumb({ source }: { source: SourceRow }) {
@@ -66,6 +68,7 @@ export const ProjectPanel = memo(function ProjectPanel({
   onOpenSetup,
   onSourceMenu,
   onCollapse,
+  onNotify,
 }: ProjectPanelProps) {
   const [query, setQuery] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -100,10 +103,11 @@ export const ProjectPanel = memo(function ProjectPanel({
         variant="panel"
         ariaLabel="Project panel sections"
         value={tab}
-        onChange={(id) => onTab(id as 'project' | 'insights')}
+        onChange={(id) => onTab(id as 'project' | 'insights' | 'accounts')}
         items={[
           { id: 'project', label: 'Sources', icon: 'folder', badge: sources.length },
           { id: 'insights', label: 'Insights', icon: 'activity', badge: warningCount || undefined },
+          { id: 'accounts', label: 'Accounts', icon: 'activity' },
         ]}
       />
 
@@ -239,6 +243,8 @@ export const ProjectPanel = memo(function ProjectPanel({
               </div>
             </form>
           </>
+        ) : tab === 'accounts' ? (
+          <AccountsPanel onNotify={onNotify} />
         ) : (
           <div className="insights">
             <LearningPanel learn={learn} />

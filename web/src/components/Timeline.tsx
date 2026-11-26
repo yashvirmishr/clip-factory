@@ -140,7 +140,9 @@ export function Timeline({
       ctx.lineTo(x, RULER_H)
       ctx.stroke()
       if (major) {
-        ctx.fillText(formatTime(t), x + 5, 9)
+        const label = formatTime(t)
+        const labelX = Math.max(2, Math.min(x + 5, contentWidth - ctx.measureText(label).width - 4))
+        ctx.fillText(label, labelX, 9)
       }
     }
     ctx.strokeStyle = withAlpha(ink, 0.14)

@@ -665,6 +665,15 @@ def test_reveal_opens_a_bake_folder(client, monkeypatch):
         assert opened[0] == str(folder.resolve())
 
 
+def test_framing_status_reports_the_managed_face_model(client):
+    payload = client.get("/api/framing/status").json()
+    assert payload["engine"] in ("opencv-yunet", "activity")
+    assert payload["model_installed"] is False
+    assert payload["model_id"] == "face-yunet"
+    assert payload["configured"] is False
+    assert payload["hint"]
+
+
 def test_caption_style_rejects_an_unknown_clip(client, analyzed):
     source, _result = analyzed
     response = client.put(

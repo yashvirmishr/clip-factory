@@ -87,6 +87,8 @@ def test_confidential_x_client_uses_basic_auth():
     token = oauth.refresh("x", "old-refresh", "cid", "csecret", client=fake)
     assert token.access_token == "new"
     assert fake.last["auth"] == ("cid", "csecret")
+    assert "client_id" not in fake.last["data"]
+    assert "client_secret" not in fake.last["data"]
 
 
 def test_facebook_mode_uses_fb_exchange_token():

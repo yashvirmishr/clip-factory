@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, accounts, db, demo, hardware, policy, secrets, service
+from . import __version__, accounts, analytics, coach, db, demo, hardware, personal, policy, secrets, service, weekly
 from .config import SETTINGS
 from .jobs import JOBS
 from .publish import limits as publish_limits
@@ -176,6 +176,25 @@ def _startup() -> None:
             logger.warning("hardware encoder probe failed", exc_info=True)
 
     threading.Thread(target=warm_encoder_probe, name="clip-encoder-probe", daemon=True).start()
+
+    def pump_publishes() -> None:
+        for job_id in publish_queue.recover():
+            try:
+                _submit_publish(job_id)
+            except Exception:  # noqa: BLE001 - one stuck upload must not block startup
+                logger.warning("could not resume publish job %s", job_id, exc_info=True)
+        while True:
+            time.sleep(20)
+            try:
+                pending = publish_queue.next_pending()
+                if pending is not None:
+                    _submit_publish(pending["id"])
+            except Exception:  # noqa: BLE001 - the scheduler retries next tick
+                logger.warning("publish scheduler tick failed", exc_info=True)
+
+    if os.environ.get("CLIPPER_DISABLE_PUBLISH_SCHEDULER") != "1":
+        threading.Thread(target=pump_publishes, name="clip-publish-scheduler", daemon=True).start()
+    weekly.start()
 
 
 @app.get("/api/health")
@@ -733,12 +752,27 @@ def get_clip(source_id: str, clip_id: str) -> dict:
     return candidate.model_dump()
 
 
-def _caption_payload(clip_id: str, pages: list[CaptionPage], edited: bool) -> dict:
+def _captions_font(candidate, pages: list[CaptionPage]) -> str:
+    """The family the renderer will actually use for these pages.
+
+    The studio previews with this so a Han clip does not preview in Arial Black
+    and burn in YaHei.
+    """
+    from .render.ass import font_for_text, resolve_style
+
+    style = resolve_style(candidate.caption_style, SETTINGS.captions.default_preset)
+    return font_for_text(style.font, "".join(page.text for page in pages))
+
+
+def _caption_payload(
+    clip_id: str, pages: list[CaptionPage], edited: bool, font: str = ""
+) -> dict:
     return {
         "clip_id": clip_id,
         "pages": [page.model_dump() for page in pages],
         "stats": caption_stats(pages),
         "edited": edited,
+        "font": font,
     }
 
 
@@ -748,7 +782,9 @@ def get_captions(source_id: str, clip_id: str) -> dict:
     if candidate is None:
         raise HTTPException(status_code=404, detail="clip not found")
     pages = pages_for(candidate, SETTINGS.captions)
-    return _caption_payload(clip_id, pages, bool(candidate.caption_pages))
+    return _caption_payload(
+        clip_id, pages, bool(candidate.caption_pages), _captions_font(candidate, pages)
+    )
 
 
 @app.put("/api/sources/{source_id}/clips/{clip_id}/captions")
@@ -769,7 +805,7 @@ def put_captions(source_id: str, clip_id: str, request: CaptionEditRequest) -> d
     # One row instead of a whole-payload rewrite; the pages are folded back on
     # load and cached there.
     db.save_clip_edit(source_id, clip_id, "captions", {"pages": [p.model_dump() for p in pages]})
-    return _caption_payload(clip_id, pages, True)
+    return _caption_payload(clip_id, pages, True, _captions_font(candidate, pages))
 
 
 @app.delete("/api/sources/{source_id}/clips/{clip_id}/captions")
@@ -782,7 +818,7 @@ def reset_captions(source_id: str, clip_id: str) -> dict:
         raise HTTPException(status_code=404, detail="clip not found")
     db.clear_clip_edits(source_id, clip_id, "captions")
     pages = group_words(candidate.words, SETTINGS.captions)
-    return _caption_payload(clip_id, pages, False)
+    return _caption_payload(clip_id, pages, False, _captions_font(candidate, pages))
 
 
 @app.post("/api/sources/{source_id}/clips/{clip_id}/decision")
@@ -989,9 +1025,15 @@ def render_presets() -> list[dict]:
 @app.get("/api/framing/status")
 def framing_status() -> dict:
     """Whether face-aware framing can run here, and what it falls back to."""
+    from . import models
     from .pipeline import faces
 
-    return faces.status(SETTINGS.framing.face_model)
+    # An explicit config path wins; otherwise the model the app downloaded.
+    path = SETTINGS.framing.face_model or models.face_model_path()
+    payload = faces.status(path)
+    payload["configured"] = bool(SETTINGS.framing.face_model)
+    payload["model_id"] = "face-yunet"
+    return payload
 
 
 @app.get("/api/fonts")
@@ -1207,6 +1249,58 @@ def trim_clip(source_id: str, clip_id: str, request: TrimRequest) -> dict:
     return candidate.model_dump()
 
 
+@app.get("/api/sources/{source_id}/clips/{clip_id}/suggestions")
+def get_suggestions(source_id: str, clip_id: str) -> dict:
+    candidate = db.find_candidate(source_id, clip_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+    return {"suggestions": coach.refresh(candidate)}
+
+
+@app.post("/api/sources/{source_id}/clips/{clip_id}/suggestions/{suggestion_id}/preview")
+def preview_suggestion(source_id: str, clip_id: str, suggestion_id: str) -> dict:
+    candidate = db.find_candidate(source_id, clip_id)
+    item = coach.get(suggestion_id)
+    if candidate is None or item is None or item["clip_id"] != clip_id:
+        raise HTTPException(status_code=404, detail="suggestion not found")
+    return {"suggestion": item, "preview": coach.preview(candidate, item)}
+
+
+@app.post("/api/sources/{source_id}/clips/{clip_id}/suggestions/{suggestion_id}/apply")
+def apply_suggestion(source_id: str, clip_id: str, suggestion_id: str) -> dict:
+    candidate = db.find_candidate(source_id, clip_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="clip not found")
+    try:
+        outcome = coach.apply(source_id, clip_id, suggestion_id, candidate=candidate)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = db.find_candidate(source_id, clip_id)
+    return {**outcome, "candidate": updated.model_dump() if updated else None}
+
+
+@app.post("/api/sources/{source_id}/clips/{clip_id}/suggestions/{suggestion_id}/undo")
+def undo_suggestion(source_id: str, clip_id: str, suggestion_id: str) -> dict:
+    try:
+        outcome = coach.undo(source_id, clip_id, suggestion_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    updated = db.find_candidate(source_id, clip_id)
+    return {**outcome, "candidate": updated.model_dump() if updated else None}
+
+
+@app.post("/api/sources/{source_id}/clips/{clip_id}/suggestions/{suggestion_id}/dismiss")
+def dismiss_suggestion(source_id: str, clip_id: str, suggestion_id: str) -> dict:
+    item = coach.get(suggestion_id)
+    if item is None or item["clip_id"] != clip_id:
+        raise HTTPException(status_code=404, detail="suggestion not found")
+    return coach.dismiss(suggestion_id)
+
+
 @app.get("/api/sources/{source_id}/clips/{clip_id}/framing")
 def clip_framing(source_id: str, clip_id: str) -> dict:
     """Where the "auto" reframer would put the crop, and why.
@@ -1382,6 +1476,40 @@ def refresh_profile() -> dict:
     return {"ok": True, "summary": summary, "state": LEARNER.state()}
 
 
+@app.get("/api/learning/weekly")
+def weekly_state() -> dict:
+    return weekly.status()
+
+
+@app.post("/api/learning/weekly/run")
+def run_weekly() -> dict:
+    return weekly.run()
+
+
+@app.get("/api/learn/personal")
+def personal_state(account_id: str = "") -> dict:
+    return personal.state(account_id)
+
+
+@app.post("/api/learn/personal/train")
+def train_personal(account_id: str = "") -> dict:
+    return personal.train(account_id)
+
+
+@app.post("/api/learn/personal/{version}/activate")
+def activate_personal(version: str) -> dict:
+    try:
+        return personal.activate(version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/learn/personal/rollback")
+def rollback_personal() -> dict:
+    personal.rollback()
+    return personal.state()
+
+
 @app.get("/api/learn/export")
 def export_dataset() -> PlainTextResponse:
     lines = demo.build_training_export()
@@ -1461,7 +1589,7 @@ def list_accounts() -> dict:
     for platform, row in publish_limits.LIMITS.items():
         payload = row.as_dict()
         payload["connected"] = accounts.account_count(platform)
-        payload["adapter"] = platform == "youtube"
+        payload["adapter"] = platform in ("youtube", "x")
         platforms.append(payload)
     return {
         "accounts": rows,
@@ -1531,11 +1659,44 @@ def disconnect_account(account_id: str) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/accounts/{account_id}/sync")
+def sync_account(account_id: str) -> dict:
+    """Pull recent posts and snapshot metrics now. Also runs weekly while the app is open."""
+    if accounts.get_account(account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    try:
+        return analytics.sync_account(account_id)
+    except accounts.ReconnectRequired as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except accounts.AccountError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - platform errors are user-facing
+        from .publish.base import PublishError
+        if isinstance(exc, PublishError):
+            raise HTTPException(status_code=502, detail={"message": str(exc), "code": exc.code}) from exc
+        raise
+
+
+@app.get("/api/accounts/{account_id}/overview")
+def account_overview(account_id: str) -> dict:
+    if accounts.get_account(account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    return analytics.account_overview(account_id)
+
+
+@app.get("/api/accounts/{account_id}/posts")
+def account_posts(account_id: str, limit: int = 100) -> dict:
+    if accounts.get_account(account_id) is None:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    posts = analytics.list_posts(account_id, limit=limit)
+    return {"posts": posts, "baseline": analytics.baseline(account_id)}
+
+
 @app.get("/api/publish/limits")
 def publish_platform_limits() -> dict:
     return {
         "platforms": {platform: row.as_dict() for platform, row in publish_limits.LIMITS.items()},
-        "supported": ["youtube"],
+        "supported": ["youtube", "x"],
         "last_verified": "2026-11",
     }
 
@@ -1557,21 +1718,35 @@ def validate_publish(request: PublishDraftRequest) -> dict:
 
 
 def _submit_publish(job_id: str):
+    # Claim before submitting. Both the create route and the retry scheduler can
+    # see the same due row; only one of them may own the upload.
+    if publish_queue.claim(job_id) is None:
+        return None
+
     def task(progress):
         return publish_queue.process(job_id, progress)
 
-    return JOBS.submit("publish", task)
+    try:
+        return JOBS.submit("publish", task)
+    except Exception as exc:  # noqa: BLE001 - a refused task must not leave a running row
+        publish_queue.mark_failure(job_id, f"Could not start upload: {exc}", retryable=True)
+        raise
 
 
 @app.post("/api/publish")
 def create_publish(request: PublishCreateRequest) -> dict:
-    if request.platform not in ("youtube",):
+    if request.platform not in ("youtube", "x"):
         raise HTTPException(
             status_code=400,
             detail=f"{request.platform.title()} publishing is not enabled yet. Use Export & share for now.",
         )
     if not request.media_path:
         raise HTTPException(status_code=400, detail="A rendered media_path is required to publish.")
+    account = accounts.get_account(request.account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Connect that account before publishing.")
+    if account.platform != request.platform:
+        raise HTTPException(status_code=400, detail="That account belongs to a different platform.")
     try:
         draft, result = _draft_from_request(request)
     except KeyError as exc:
@@ -1656,22 +1831,7 @@ def cancel_publish_job(job_id: str) -> dict:
 
 @app.get("/api/posts")
 def list_posts(limit: int = 50) -> dict:
-    import json as json_module
-
-    with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM posts ORDER BY published_at DESC LIMIT ?", (max(1, limit),)
-        ).fetchall()
-    out = []
-    for row in rows:
-        payload = dict(row)
-        for key in ("hashtags", "features"):
-            try:
-                payload[key] = json_module.loads(payload.get(key) or "[]" if key == "hashtags" else payload.get(key) or "{}")
-            except (json_module.JSONDecodeError, TypeError):
-                payload[key] = [] if key == "hashtags" else {}
-        out.append(payload)
-    return {"posts": out}
+    return {"posts": analytics.list_posts("", limit=limit)}
 
 # Production: the built UI is served from the same origin as the API, so the
 # desktop shell only has to load one URL. Mounted last so /api keeps priority.

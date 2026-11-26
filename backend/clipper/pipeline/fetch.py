@@ -86,16 +86,80 @@ def available() -> str:
 
 
 def cookies_file() -> Path | None:
-    """A cookies.txt for age-restricted videos, if the user supplied one.
+    """A cookies.txt for age-restricted or subscriber-only videos, if supplied.
+
+    ``CLIPPER_YTDLP_COOKIES`` wins; otherwise ``<data>/cookies.txt`` and then
+    ``<data>/twitch-cookies.txt``. Dropping the file into the data directory is
+    the no-restart path, and that matters: the server is usually already running
+    by the time the user finds out a VOD is gated.
 
     Only read locally by yt-dlp; it is never copied into an artifact or bundle.
     """
 
     raw = os.environ.get("CLIPPER_YTDLP_COOKIES", "").strip()
-    if not raw:
+    if raw:
+        path = Path(raw).expanduser()
+        if path.exists():
+            return path
+    from ..config import SETTINGS  # local, so this module stays importable alone
+
+    for name in ("cookies.txt", "twitch-cookies.txt"):
+        candidate = SETTINGS.data_dir / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _cookies_hint() -> str:
+    """Where a dropped-in cookies.txt is found, as the user would type it.
+
+    Shown relative to the working directory when it lives inside the app folder:
+    the absolute path is 250 characters of OneDrive, which leaves a toast
+    unreadable and wrapped mid-word.
+    """
+
+    from ..config import SETTINGS
+
+    path = SETTINGS.data_dir / "cookies.txt"
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+# How Twitch answers a gated archive: a null playback token and no error text,
+# which yt-dlp can only express as a bare TypeError from inside its extractor.
+_GATED = (
+    "nonetype' object is not subscriptable",
+    "playback access token",
+    "vod_manifest_restricted",
+    "unauthorized_entitlements",
+)
+
+
+def _explain(url: str, exc: Exception) -> str | None:
+    """Turn a known upstream refusal into something a person can act on.
+
+    Nothing in ``'NoneType' object is not subscriptable`` tells the user that a
+    *video* was refused, let alone that signing in would fix it.
+    """
+
+    if "twitch.tv" not in url.lower():
         return None
-    path = Path(raw).expanduser()
-    return path if path.exists() else None
+    text = str(exc).lower()
+    if not any(marker in text for marker in _GATED):
+        return None
+    target = _cookies_hint()
+    if cookies_file():
+        return (
+            f"Twitch still refused this VOD with the cookies at {target}. Re-export them "
+            "from an account that can play the VOD in a browser."
+        )
+    return (
+        "Twitch will not hand this VOD to a logged-out client: it is age-restricted, "
+        "subscriber-only, or still being prepared. Save a twitch.tv cookies.txt as "
+        f"{target} to sign in, then retry."
+    )
 
 
 def _cookies_option(options: dict, cookies: str | Path | None = None) -> None:
@@ -152,9 +216,9 @@ def inspect(url: str, cookies: str | Path | None = None) -> Preview:
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url.strip(), download=False)
     except yt_dlp.utils.DownloadError as exc:  # type: ignore[attr-defined]
-        raise FetchError(_clean(str(exc))) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise FetchError(_clean(f"{type(exc).__name__}: {exc}")) from exc
+        raise FetchError(_explain(url, exc) or _clean(str(exc))) from exc
+    except Exception as exc:  # noqa: BLE001 - a TypeError from inside an extractor is still an answer
+        raise FetchError(_explain(url, exc) or _clean(f"{type(exc).__name__}: {exc}")) from exc
 
     if not info:
         raise FetchError("yt-dlp returned no metadata for that URL")
@@ -283,14 +347,17 @@ def fetch(
         "progress_hooks": [hook],
         "socket_timeout": 30,
     }
+    # The download needs the same credentials the preview already uses: a gated
+    # VOD previews fine and then fails here, which is the confusing direction.
+    _cookies_option(options)
 
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as exc:  # type: ignore[attr-defined]
-        raise FetchError(_clean(str(exc))) from exc
+        raise FetchError(_explain(url, exc) or _clean(str(exc))) from exc
     except Exception as exc:  # noqa: BLE001
-        raise FetchError(_clean(f"{type(exc).__name__}: {exc}")) from exc
+        raise FetchError(_explain(url, exc) or _clean(f"{type(exc).__name__}: {exc}")) from exc
 
     if not info:
         raise FetchError("yt-dlp returned no metadata for that URL")

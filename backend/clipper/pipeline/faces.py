@@ -85,16 +85,22 @@ def status(model_path: str | Path | None = None) -> dict:
     if has_cv2 and has_model:
         hint = ""
     elif has_cv2:
-        hint = "The face model is not installed, so framing follows motion instead."
+        hint = (
+            "The face model is not installed. Download 'Face tracking (YuNet)' "
+            "in Models; until then framing follows motion."
+        )
     else:
         hint = (
-            "Face-aware framing needs the optional OpenCV package. "
-            "Framing follows motion instead."
+            "Face-aware framing needs the optional OpenCV package "
+            "(pip install -r requirements-optional.txt), then the face model "
+            "from Models. Framing follows motion until then."
         )
     return {
         "available": has_cv2 and has_model,
         "engine": "opencv-yunet" if has_cv2 else "activity",
         "model": str(model or ""),
+        "cv2": has_cv2,
+        "model_installed": has_model,
         "hint": hint,
     }
 

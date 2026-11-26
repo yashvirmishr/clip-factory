@@ -8,7 +8,12 @@ const KIND_LABEL: Record<string, string> = {
   asr: 'Transcription',
   vad: 'Voice activity',
   llm: 'Scoring',
+  face: 'Framing',
 }
+
+// Only these kinds have an "active model" setting; a face model is picked up by
+// path, so offering "Use model" on it would be a button that cannot work.
+const ACTIVATABLE = new Set(['asr', 'vad', 'llm'])
 
 interface RowState {
   jobId?: string
@@ -169,14 +174,18 @@ export function ModelList() {
             </div>
             <div className="model-action">
               {model.installed ? (
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  disabled={model.active}
-                  onClick={() => void activate(model)}
-                >
-                  {model.active ? 'In use' : 'Use model'}
-                </button>
+                ACTIVATABLE.has(model.kind) ? (
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    disabled={model.active}
+                    onClick={() => void activate(model)}
+                  >
+                    {model.active ? 'In use' : 'Use model'}
+                  </button>
+                ) : (
+                  <span className="pill ok">installed</span>
+                )
               ) : (
                 <button
                   type="button"

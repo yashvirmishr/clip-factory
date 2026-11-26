@@ -5,7 +5,13 @@ import pytest
 from clipper.config import SETTINGS
 from clipper.domain import Word
 from clipper.pipeline.caption import group_words
-from clipper.render.ass import PRESETS, build_ass_document, escape_text, get_preset
+from clipper.render.ass import (
+    PRESETS,
+    build_ass_document,
+    escape_text,
+    font_for_text,
+    get_preset,
+)
 from clipper.render.ffmpeg import RenderSpec, build_args, build_filter_graph
 
 
@@ -60,6 +66,27 @@ def test_every_preset_produces_a_valid_header():
         assert document.startswith("[Script Info]")
         assert f"Style: Clip,{style.font}," in document
         assert key
+
+
+def test_cjk_burn_has_no_spaces_and_uses_a_script_font():
+    text = "今天我们聊聊人工智能"
+    many = [
+        Word(text=char, start=i * 0.3, end=i * 0.3 + 0.28, prob=0.9)
+        for i, char in enumerate(text)
+    ]
+    pages = group_words(many, SETTINGS.captions)
+    document = build_ass_document(pages, get_preset("hormozi"), clip_start=0.0)
+    assert "Style: Clip,Microsoft YaHei," in document
+    dialogue = next(line for line in document.splitlines() if line.startswith("Dialogue:"))
+    assert "今 天" not in dialogue and "天 我" not in dialogue
+    assert "今" in dialogue and "天" in dialogue
+
+
+def test_latin_only_presets_fall_back_to_a_script_family():
+    assert font_for_text("Arial Black", "你好") == "Microsoft YaHei"
+    assert font_for_text("Arial Black", "नमस्ते") == "Nirmala UI"
+    assert font_for_text("Nirmala UI", "नमस्ते") == "Nirmala UI"
+    assert font_for_text("Arial Black", "hello") == "Arial Black"
 
 
 def test_crop_framing_graph_scales_and_burns():

@@ -58,6 +58,20 @@ def test_list_and_delete_only_touch_the_selected_account(clean_db):
     assert accounts.load_tokens(one.id) is None
 
 
+def test_delete_revokes_the_remote_token_before_forgetting_it(clean_db, monkeypatch):
+    account = connect("x", "X1")
+    calls = []
+
+    def fake_revoke(platform, token, client_id="", client_secret="", client=None):
+        calls.append((platform, token, client_id, client_secret))
+        return True
+
+    monkeypatch.delenv("CLIPPER_DISABLE_REVOKE", raising=False)
+    monkeypatch.setattr(oauth, "revoke", fake_revoke)
+    assert accounts.delete_account(account.id) is True
+    assert calls == [("x", "access-1", "client-id", "client-secret")]
+
+
 def test_access_token_refreshes_an_expired_token_and_preserves_refresh(clean_db, monkeypatch):
     account = connect(token=tokens(expires_at=time.time() - 10))
     monkeypatch.setattr(

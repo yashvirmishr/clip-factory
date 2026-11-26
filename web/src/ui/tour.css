@@ -42,6 +42,8 @@
 
 .tour-card.centred {
   width: 468px;
+  top: 50% !important;
+  transform: translateY(-50%);
 }
 
 .tour-head {
@@ -223,6 +225,7 @@
 }
 
 .setup-pill {
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.08em;

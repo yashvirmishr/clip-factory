@@ -13,6 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..lang import (
+    UNSPACED_SCRIPTS,
+    cased,
+    display_width,
+    font_for,
+    script_of,
+    script_of_char,
+)
 from ..pipeline.caption import CaptionPage
 
 RES_X = 1080
@@ -214,20 +222,68 @@ def _format_time(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}.{cs:02d}"
 
 
+# Preset families that ship with Windows but carry Latin (and Cyrillic/Greek)
+# glyphs only. libass would silently substitute another font per glyph, which
+# changes size, spacing and weight halfway through a line.
+_LATIN_ONLY_FONTS = frozenset(
+    {
+        "Arial",
+        "Arial Black",
+        "Segoe UI",
+        "Segoe UI Semibold",
+        "Georgia",
+        "Comic Sans MS",
+        "Verdana",
+        "Tahoma",
+    }
+)
+_COVERED_SCRIPTS = frozenset({"latin", "cyrillic", "greek", "none"})
+
+
+def _text_script(text: str) -> str:
+    script = script_of(text)
+    if script != "mixed":
+        return script
+    for character in text:
+        candidate = script_of_char(character)
+        if candidate and candidate not in _COVERED_SCRIPTS:
+            return candidate
+    return script
+
+
+def font_for_text(font: str, text: str) -> str:
+    """The family a caption has to use to actually draw this text.
+
+    An explicit family that can carry the script is kept. A Latin-only preset
+    on Han, Kana, Hangul, Arabic, Hebrew or Indic text falls back to the script
+    family, so the burn and the preview agree instead of relying on libass
+    per-glyph substitution.
+    """
+    script = _text_script(text)
+    if script in _COVERED_SCRIPTS:
+        return font
+    if font in _LATIN_ONLY_FONTS:
+        return font_for(script)[0]
+    return font
+
+
 def _wrap(words: list[str], max_chars: int, max_lines: int) -> list[list[str]]:
+    unspaced = script_of("".join(words)) in UNSPACED_SCRIPTS
     lines: list[list[str]] = [[]]
-    length = 0
+    width = 0
     for word in words:
-        if lines[-1] and length + 1 + len(word) > max_chars:
+        word_width = display_width(word)
+        gap = 0 if unspaced or not lines[-1] else 1
+        if lines[-1] and width + gap + word_width > max_chars:
             if len(lines) >= max_lines:
                 lines[-1].append(word)
-                length += 1 + len(word)
+                width += gap + word_width
                 continue
             lines.append([word])
-            length = len(word)
+            width = word_width
         else:
             lines[-1].append(word)
-            length = len(word) if not length else length + 1 + len(word)
+            width += gap + word_width
     return lines
 
 
@@ -238,6 +294,8 @@ def build_ass_document(
     max_chars_per_line: int = 22,
     max_lines: int = 2,
 ) -> str:
+    sample = "".join(word.text for page in pages for word in page.words)
+    document_font = font_for_text(style.font, sample)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {RES_X}
@@ -248,7 +306,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Clip,{style.font},{style.size},{style.primary},{style.secondary},{style.outline},{style.back},{style.bold},0,0,0,100,100,0,0,{1 if style.outline_width else 3},{style.outline_width},{style.shadow},{style.alignment},{style.margin_h},{style.margin_h},{style.margin_v},1
+Style: Clip,{document_font},{style.size},{style.primary},{style.secondary},{style.outline},{style.back},{style.bold},0,0,0,100,100,0,0,{1 if style.outline_width else 3},{style.outline_width},{style.shadow},{style.alignment},{style.margin_h},{style.margin_h},{style.margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -261,10 +319,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if end <= 0:
             continue
         start = max(0.0, start)
-        words = [w.text.upper() if style.uppercase else w.text for w in page.words]
-        if not words:
+        raw_words = [w.text for w in page.words]
+        script = script_of("".join(raw_words))
+        # .upper() is a no-op on scripts without case; skipping it says so.
+        if style.uppercase and cased(script):
+            raw_words = [word.upper() for word in raw_words]
+        if not raw_words:
             continue
-        lines = _wrap(words, max_chars_per_line, max_lines)
+        lines = _wrap(raw_words, max_chars_per_line, max_lines)
+        separator = "" if script in UNSPACED_SCRIPTS else " "
 
         chunks: list[str] = []
         index = 0
@@ -278,7 +341,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     word_duration = 0.2
                 centiseconds = max(1, int(round(word_duration * 100)))
                 prefix = f"{{\\{style.karaoke}{centiseconds}}}" if style.karaoke != "none" else ""
-                chunks.append(f"{prefix}{escape_text(word)} ")
+                chunks.append(f"{prefix}{escape_text(word)}{separator}")
                 index += 1
 
         text = "".join(chunks).rstrip()

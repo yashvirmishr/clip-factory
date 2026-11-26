@@ -190,12 +190,42 @@ MODELS: list[dict] = [
         "filename": "ggml-medium.en.bin",
     },
     {
+        "id": "whisper-base",
+        "kind": "asr",
+        "label": "Whisper base (multilingual)",
+        "size_gb": 0.15,
+        "min_tier": "A",
+        "speed": "~1-2x realtime on CPU; 90+ languages, lower accuracy",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+        "filename": "ggml-base.bin",
+    },
+    {
+        "id": "whisper-small",
+        "kind": "asr",
+        "label": "Whisper small (multilingual)",
+        "size_gb": 0.49,
+        "min_tier": "A",
+        "speed": "~2-3x realtime on CPU; the multilingual default",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+        "filename": "ggml-small.bin",
+    },
+    {
+        "id": "whisper-medium",
+        "kind": "asr",
+        "label": "Whisper medium (multilingual)",
+        "size_gb": 1.53,
+        "min_tier": "B",
+        "speed": "slower; best multilingual accuracy under 2 GB",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+        "filename": "ggml-medium.bin",
+    },
+    {
         "id": "whisper-large-v3-turbo",
         "kind": "asr",
-        "label": "Whisper large-v3-turbo (q5)",
+        "label": "Whisper large-v3-turbo (q5, multilingual)",
         "size_gb": 1.1,
         "min_tier": "C",
-        "speed": "largest English model; slower than realtime on CPU",
+        "speed": "largest speech model; slower than realtime on CPU",
         "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         "filename": "ggml-large-v3-turbo-q5_0.bin",
     },
@@ -249,6 +279,16 @@ MODELS: list[dict] = [
         "url": "https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf",
         "filename": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
     },
+    {
+        "id": "face-yunet",
+        "kind": "face",
+        "label": "Face tracking (YuNet)",
+        "size_gb": 0.0002,
+        "min_tier": "A",
+        "speed": "milliseconds per clip; needs the optional OpenCV package",
+        "url": "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+        "filename": "face_detection_yunet_2023mar.onnx",
+    },
 ]
 
 TIER_ORDER = "ABCDE"
@@ -270,11 +310,21 @@ def advise(profile: dict) -> dict:
         return max(options, key=lambda m: m["size_gb"]) if options else None
 
     scoring = next((m for m in usable if m["kind"] == "llm" and m["size_gb"] <= 2.5), None)
+    # Recommend a multilingual speech model even to English speakers: the app
+    # defaults to Detect automatically, and an English-only model silently
+    # ignores that when the audio is not English.
+    asr = largest("asr")
+    multilingual = [
+        m for m in usable
+        if m["kind"] == "asr" and not m["filename"].endswith(".en.bin")
+    ]
+    if asr is not None and asr["filename"].endswith(".en.bin") and multilingual:
+        asr = max(multilingual, key=lambda m: m["size_gb"])
     return {
         "tier": tier,
         "tier_label": TIERS[tier]["label"],
         "blurb": TIERS[tier]["blurb"],
-        "asr": largest("asr"),
+        "asr": asr,
         "vad": next((m for m in usable if m["kind"] == "vad"), None),
         "llm_scoring": scoring or largest("llm"),
         "llm_polish": largest("llm"),

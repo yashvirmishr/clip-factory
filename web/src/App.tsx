@@ -72,7 +72,7 @@ interface Toast {
 
 type CentreTab = 'reel' | 'monitor' | 'timeline'
 type WorkspacePreset = 'triage' | 'editing' | 'review'
-type ProjectTab = 'project' | 'insights'
+type ProjectTab = 'project' | 'insights' | 'accounts'
 
 interface LayoutState {
   leftWidth: number
@@ -232,7 +232,7 @@ const MENUS: MenuDefinition[] = [
     label: 'Workspace',
     items: ['workspace.triage', 'workspace.editing', 'workspace.review', '-', 'edit.resetWorkspace'],
   },
-  { id: 'help', label: 'Help', items: ['help.shortcuts', 'help.setup', 'help.about'] },
+  { id: 'help', label: 'Help', items: ['help.tour', 'help.shortcuts', 'help.setup', 'help.about'] },
 ]
 
 function phaseStates(job: JobState | null, phases: typeof PHASES = PHASES): Record<string, string> {
@@ -582,12 +582,13 @@ export default function App() {
             })
           pushToast('ok', 'Chat replay saved — re-analyze to score audience reaction')
         }
-        if (next.kind === 'download') {
-          pushToast('ok', 'Download finished.')
-        }
       }
       if (next.status === 'error') {
-        pushToast('error', next.error || 'Analysis failed')
+        // A download reports itself from startUrlIngest, which has the video's
+        // name and, when Twitch withholds one, the advice that fixes it. Toasting
+        // here too showed the same failure twice, the second time with the
+        // exception class still glued to the front of the sentence.
+        if (next.kind !== 'download') pushToast('error', next.error || 'Analysis failed')
       }
     }
     // Keyed on the job, not its status: a queued job that turns running must
@@ -645,7 +646,10 @@ export default function App() {
         setJob(started)
         const finished = await pollUntilDone(started.id)
         if (finished.status === 'error') {
-          pushToast('error', `Download failed: ${finished.error || 'unknown error'}`)
+          // The job carries "FetchError: <what happened>"; the exception class is
+          // noise in a toast, the sentence after it is the point.
+          const reason = (finished.error || 'unknown error').replace(/^\w*Error:\s*/, '')
+          pushToast('error', `Download failed: ${reason}`)
           return
         }
         const source = (finished as unknown as { analysis?: SourceInfo }).analysis
@@ -688,9 +692,14 @@ export default function App() {
             setIngesting(false)
             return
           } catch (error) {
+            // A long explanation (a gated VOD, say) belongs in the download's own
+            // error, not pasted into a toast the download is about to repeat.
+            const reason = (error as Error).message
             pushToast(
               'info',
-              `Could not preview that URL (${(error as Error).message}) - importing it directly.`,
+              reason.length > 80
+                ? 'Could not preview that URL - importing it directly.'
+                : `Could not preview that URL (${reason}) - importing it directly.`,
             )
             await startUrlIngest(path)
             return
@@ -1728,6 +1737,7 @@ export default function App() {
               onOpenSetup={() => void openSetup()}
               onSourceMenu={openSourceMenu}
               onCollapse={() => setLayout((current) => ({ ...current, leftOpen: false }))}
+              onNotify={pushToast}
             />
             <Resizer
               side="left"
@@ -1777,6 +1787,7 @@ export default function App() {
                 hasSource={Boolean(selectedSourceId)}
                 analysis={analysis}
                 busy={labeling}
+                onTour={() => tour.start(true)}
                 onFilter={(filter) => setLayout((current) => ({ ...current, clipFilter: filter }))}
                 onSort={(sort) => setLayout((current) => ({ ...current, clipSort: sort }))}
                 onView={(view) => setLayout((current) => ({ ...current, clipView: view }))}
@@ -1881,6 +1892,7 @@ export default function App() {
               onOpenSetup={() => void openSetup()}
               onSourceMenu={openSourceMenu}
               onCollapse={() => setLayout((current) => ({ ...current, leftOpen: false }))}
+              onNotify={pushToast}
             />
           </div>
         </>

@@ -14,7 +14,7 @@ from typing import Callable
 
 import numpy as np
 
-from . import db, policy
+from . import db, personal, policy
 from .config import SETTINGS
 from .domain import (
     AnalysisResult,
@@ -559,7 +559,19 @@ def analyze(
             progress("score", 0.78 + 0.12 * (index / max(1, len(shortlist))), f"{index}/{len(shortlist)} windows")
 
     # ---- personal re-ranker -------------------------------------------
-    LEARNER.rerank(shortlist)
+    personal_model = personal.active()
+    if personal_model is not None and personal_model.weights:
+        # Taste and performance share one cap. When both are live, taste gets
+        # 0.35 and performance 0.20 (total 0.55); taste alone keeps 0.6.
+        personal.apply_blend(
+            shortlist,
+            personal_model,
+            LEARNER.model(),
+            personal.BLEND_CAP,
+            0.55 - personal.BLEND_CAP,
+        )
+    else:
+        LEARNER.rerank(shortlist)
 
     # ---- selection -----------------------------------------------------
     progress("select", 0.92, "picking non-overlapping clips")

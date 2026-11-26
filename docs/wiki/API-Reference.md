@@ -243,6 +243,9 @@ Exports include every ranked clip, not only approved clips. A source without a r
 | POST | `/api/accounts/{platform}/connect` | Start OAuth; returns the provider `url` to open |
 | GET | `/api/connections/callback` | Loopback OAuth callback; returns an HTML page |
 | DELETE | `/api/accounts/{id}` | Revoke and forget an account |
+| POST | `/api/accounts/{id}/sync` | Pull posts and metrics through the platform API |
+| GET | `/api/accounts/{id}/overview` | Followers, medians and label readiness for one account |
+| GET | `/api/accounts/{id}/posts` | Recent posts with the latest metrics and engagement rate |
 | GET | `/api/publish/limits` | Platform limits, supported platforms, verification date |
 | POST | `/api/publish/validate` | Validate a draft without uploading |
 | POST | `/api/publish` | Queue an upload |
@@ -252,7 +255,9 @@ Exports include every ranked clip, not only approved clips. A source without a r
 | POST | `/api/publish/jobs/{id}/cancel` | Cancel a queued upload |
 | GET | `/api/posts` | Published posts recorded locally |
 
-`POST /api/publish` needs `platform` (`youtube` only), `account_id`, `media_path` (the rendered MP4's local path, returned by a render as `path`), `title`, `caption`, `hashtags`, `visibility` and `made_for_kids`. An unsupported platform returns 400; a draft that breaks a platform limit returns 400 with the issue list in `detail`. Validation and upload use the same rules.
+`POST /api/publish` needs `platform` (`youtube` or `x`), `account_id`, `media_path` (the rendered MP4's local path, returned by a render as `path`), `title`, `caption`, `hashtags`, `visibility` and `made_for_kids`. An unsupported platform returns 400; a draft that breaks a platform limit returns 400 with the issue list in `detail`. Validation and upload use the same rules. Reusing an `idempotency_key` returns the existing job instead of uploading twice.
+
+The queue claims a job before submitting it, retries retryable failures with backoff, resumes interrupted `running` jobs on launch, and runs a due-job scheduler every 20 seconds. `GET` and `POST /api/learn/personal` expose the gated performance model; see below.
 
 Tokens live in the operating system credential store, never in `config.json`. Anything else in the payload is passed through to the platform as metadata.
 
@@ -275,8 +280,21 @@ Activation persists in `config.json` and survives restart. A model that is not i
 | GET | `/api/learn/state` | Decision counts, threshold progress, gate and style profile |
 | POST | `/api/learn/profile/refresh` | Rebuild the style profile |
 | GET | `/api/learn/export` | JSONL dataset of decisions |
+| GET | `/api/learn/personal` | Taste blend weight, account readiness and model history |
+| POST | `/api/learn/personal/train` | Train one account (or all) through the holdout gates |
+| POST | `/api/learn/personal/{version}/activate` | Activate a promoted model |
+| POST | `/api/learn/personal/rollback` | Pause the personal model and return to approval-only ranking |
+| GET | `/api/learning/weekly` | Last run, next run, due state and last results |
+| POST | `/api/learning/weekly/run` | Sync accounts and train now |
+| GET | `/api/sources/{source_id}/clips/{clip_id}/suggestions` | Regenerate coach suggestions for a clip |
+| POST | `/api/sources/{source_id}/clips/{clip_id}/suggestions/{id}/preview` | Before/after preview |
+| POST | `/api/sources/{source_id}/clips/{clip_id}/suggestions/{id}/apply` | Apply a fix and return the updated candidate |
+| POST | `/api/sources/{source_id}/clips/{clip_id}/suggestions/{id}/undo` | Restore the stored pre-apply value |
+| POST | `/api/sources/{source_id}/clips/{clip_id}/suggestions/{id}/dismiss` | Hide without changing the clip |
 
 The export is `application/jsonl`. It is generated from the local decision log and is not automatically uploaded anywhere.
+
+The personal model's gate is code, not an API option: 30 full-feature posts, 10 per class, a held-out AUC at least 0.03 above a reach-only baseline and a 200-permutation p < 0.05. `train` reports the gate result and leaves the active model alone on failure. The weekly daemon honors its seven-day interval; a manual run always runs.
 
 ## Errors
 
@@ -295,7 +313,7 @@ There is no authentication, user model, project lock, webhook or batch render en
 
 Progress is available two ways — an SSE stream and a poll route — but there is no WebSocket, no server push of anything except job state, and no event history: a stream only reports what happens while it is open.
 
-Only YouTube publishing is implemented; the account and limit records for X, TikTok and Instagram exist, but their upload adapters are not.
+Only YouTube and X publishing are implemented; the account and limit records for TikTok and Instagram exist, but their upload and analytics adapters are not.
 
 ---
 

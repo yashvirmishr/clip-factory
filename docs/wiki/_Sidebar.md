@@ -14,6 +14,7 @@
 - [Rendering and Export](Rendering-and-Export.md)
 - [Subtitles](Subtitles.md)
 - [Publishing](Publishing.md)
+- [Learning from your posts](Learning.md)
 - [Languages](Languages.md)
 - [Themes](Themes.md)
 

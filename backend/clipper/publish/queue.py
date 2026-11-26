@@ -13,10 +13,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from .. import accounts, db, secrets
+from .. import accounts, db
 from ..domain import stable_id
 from .base import PublishError, PublishResult, UploadRequest
 from .limits import MediaInfo, probe_media
+from .x import XAdapter
 from .youtube import YouTubeAdapter
 
 Progress = Callable[[str, float, str], None]
@@ -128,6 +129,30 @@ def list_jobs(limit: int = 50, status: str | None = None) -> list[dict]:
                 "SELECT * FROM publish_jobs ORDER BY created_at DESC LIMIT ?", (max(1, limit),)
             ).fetchall()
     return [_row_to_job(row) for row in rows]
+
+
+def claim(job_id: str, now: float | None = None) -> dict | None:
+    """Atomically move one due job to running.
+
+    Every worker path goes through this, so a create request, a startup resume,
+    and the retry scheduler cannot upload the same row twice.
+    """
+    now = now or time.time()
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM publish_jobs WHERE id=?", (job_id,)).fetchone()
+        if row is None:
+            return None
+        if row["status"] not in ("queued", "retry"):
+            return None
+        if float(row["next_attempt_at"] or 0) > now:
+            return None
+        conn.execute(
+            "UPDATE publish_jobs SET status=?, stage=?, attempts=attempts+1, updated_at=? WHERE id=?",
+            ("running", "starting", now, job_id),
+        )
+        row = conn.execute("SELECT * FROM publish_jobs WHERE id=?", (job_id,)).fetchone()
+    return _row_to_job(row)
 
 
 def claim_next(now: float | None = None) -> dict | None:
@@ -287,6 +312,8 @@ def cancel(job_id: str) -> dict | None:
 def adapter_for(platform: str):
     if platform == "youtube":
         return YouTubeAdapter()
+    if platform == "x":
+        return XAdapter()
     raise PublishError(
         f"{platform.title()} publishing is not enabled yet. Use Export & share for now.",
         code="adapter_unavailable",
@@ -342,6 +369,38 @@ def process(job_id: str, progress: Progress | None = None) -> dict:
         mark_failure(job_id, f"{type(exc).__name__}: {exc}", code="unexpected", retryable=False)
         raise
     return mark_done(job_id, result)
+
+
+def recover(now: float | None = None) -> list[str]:
+    """Return uploads interrupted by a restart to the queue.
+
+    A process that dies mid-upload leaves a ``running`` row with no worker.
+    Marking it retry is the only honest state: the platform may or may not have
+    accepted the bytes, so the adapter's own idempotency/status check decides.
+    """
+    now = now or time.time()
+    with db.connect() as conn:
+        conn.execute(
+            """
+            UPDATE publish_jobs
+               SET status=?, stage=?, error=?, next_attempt_at=?, updated_at=?
+             WHERE status=?
+            """,
+            (
+                "retry", "resuming after restart",
+                "The app stopped during this upload; checking with the platform.",
+                now, now, "running",
+            ),
+        )
+        rows = conn.execute(
+            """
+            SELECT id FROM publish_jobs
+             WHERE status IN (?, ?) AND next_attempt_at <= ?
+             ORDER BY created_at ASC
+            """,
+            ("queued", "retry", now),
+        ).fetchall()
+    return [row["id"] for row in rows]
 
 
 def next_pending(now: float | None = None) -> dict | None:

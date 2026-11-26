@@ -12,7 +12,7 @@ Clip Factory can read a transcript in any script. Whether it can *produce* one d
 
 ## What needs a multilingual model
 
-Transcription quality comes from the model, not the app. `ggml-base.en` and `ggml-small.en` are English-only: choosing Hindi with one of those installed produces English guesses. Install a multilingual model (`ggml-small.bin`, `ggml-medium.bin`) and select the spoken language before analysing.
+Transcription quality comes from the model, not the app. `ggml-base.en` and `ggml-small.en` are English-only: choosing Hindi with one of those installed produces English guesses. Models lists multilingual Whisper files as **Whisper base / small / medium / large-v3-turbo (multilingual)**; install one, activate it, and select the spoken language before analysing.
 
 If the language is left on **Detect automatically**, whisper decides and the app records what it detected. The analysis header shows that language.
 

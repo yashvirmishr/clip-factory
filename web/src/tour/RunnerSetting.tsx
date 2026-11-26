@@ -62,8 +62,14 @@ export function RunnerSetting() {
       .then((next) => {
         setSettings(next)
         setUrl(next.url)
-        setTone(next.reachable ? 'ok' : 'muted')
-        setMessage(next.url ? 'Saved. Scoring uses it on the next analysis.' : 'Cleared. Scoring uses the built-in rules.')
+        setTone(next.url && next.reachable ? 'ok' : 'muted')
+        setMessage(
+          !next.url
+            ? 'Cleared. Scoring uses the built-in rules.'
+            : next.reachable
+              ? 'Saved. Scoring uses its model on the next analysis.'
+              : 'Saved. Nothing answers there yet, so scoring keeps using the built-in rules until it does.',
+        )
       })
       .catch((problem) => {
         setTone('bad')
@@ -76,7 +82,6 @@ export function RunnerSetting() {
     <div className="runner-setting">
       <div className="runner-head">
         <div>
-          <span className="label">Scoring model runner</span>
           <p className="field-hint">
             Optional. Point this at a llama-server you already run; scoring uses its model for the
             next analysis. Without it, the built-in rules rank clips.

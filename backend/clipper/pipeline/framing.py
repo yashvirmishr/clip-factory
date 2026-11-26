@@ -379,11 +379,14 @@ def face_plan_for_clip(source: SourceInfo, candidate: ClipCandidate, cuts: list[
     Never raises: a missing package, a missing model or an unreadable frame all
     mean "this machine cannot do faces", not "this clip has no framing".
     """
+    from ..models import face_model_path
     from . import faces as facemod
     from .scenes import shots_between
 
     cfg = SETTINGS.framing
-    if not cfg.face_model or not facemod.available(cfg.face_model):
+    # An explicit config path wins; otherwise use the face model the app manages.
+    model_path = cfg.face_model or face_model_path()
+    if not facemod.available(model_path):
         return None
     if source.width <= 0 or source.height <= 0:
         return None
@@ -395,7 +398,7 @@ def face_plan_for_clip(source: SourceInfo, candidate: ClipCandidate, cuts: list[
         grid_width=cfg.detect_width,
         grid_height=max(2, round(cfg.detect_width * 9 / 16)),
         sample_fps=cfg.detect_fps,
-        face_model=cfg.face_model,
+        face_model=str(model_path),
         detect_fps=cfg.detect_fps,
     )
     times, frames = sample_frames(
@@ -406,7 +409,7 @@ def face_plan_for_clip(source: SourceInfo, candidate: ClipCandidate, cuts: list[
     # The sampler hands back RGB; YuNet and cv2 expect BGR.
     bgr = np.ascontiguousarray(frames[..., ::-1])
     try:
-        detections = facemod.detect(list(bgr), cfg.face_model, cfg.face_score)
+        detections = facemod.detect(list(bgr), model_path, cfg.face_score)
     except Exception:  # noqa: BLE001 - optional dependency, never fatal
         return None
     return plan_from_detections(

@@ -80,6 +80,21 @@ def save_runner(raw: str) -> dict:
     return runner_settings()
 
 
+def _framing_status() -> dict:
+    """Face tracking as a capability, with the same state the render will see."""
+    from .pipeline import faces
+
+    path = SETTINGS.framing.face_model or models.face_model_path()
+    status = faces.status(path)
+    return {
+        "available": status["available"],
+        "engine": "face" if status["available"] else "activity",
+        "cv2": status["cv2"],
+        "model_installed": status["model_installed"],
+        "hint": status["hint"],
+    }
+
+
 def snapshot() -> dict:
     """Everything the setup cards need, from a single probe."""
     profile = hardware.probe()
@@ -124,6 +139,7 @@ def snapshot() -> dict:
                 else None
             ),
         },
+        "framing": _framing_status(),
         "scoring": {"built_in": True, "runner": runner_settings()},
         "models": {
             "dir": str(models.models_dir()),

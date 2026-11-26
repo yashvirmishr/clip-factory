@@ -6,13 +6,14 @@ import { Tabs } from '../workspace/Tabs'
 import { usePlayhead } from '../workspace/playhead'
 import { Spinner } from '../workspace/ui'
 import { GateWarnings, ScoreBars, TruthList } from './bits'
+import { CoachPanel } from './CoachPanel'
 import { ExportPanel } from './ExportPanel'
 import { PublishPanel, type RenderedClip } from './PublishPanel'
 import { RenderPanel, type RenderRequest } from './RenderPanel'
 import { SubtitleStudio } from './SubtitleStudio'
 import { TrimPanel } from './TrimPanel'
 
-export type InspectorTab = 'properties' | 'captions' | 'output'
+export type InspectorTab = 'properties' | 'captions' | 'coach' | 'output'
 
 interface InspectorProps {
   sourceId: string
@@ -161,6 +162,7 @@ export const Inspector = memo(function Inspector({
         items={[
           { id: 'properties', label: 'Properties', icon: 'sliders' },
           { id: 'captions', label: 'Captions', icon: 'captions', badge: captions?.stats.pages },
+          { id: 'coach', label: 'Coach', icon: 'sparkles' },
           { id: 'output', label: 'Output', icon: 'download' },
         ]}
       />
@@ -347,6 +349,7 @@ export const Inspector = memo(function Inspector({
               sourceId={sourceId}
               clipId={clip.id}
               pages={captions?.pages ?? []}
+              captionsFont={captions?.font}
               onNotify={onNotify}
             />
             <div className="caption-stats">
@@ -411,6 +414,14 @@ export const Inspector = memo(function Inspector({
               <div className="panel-note">No caption pages were generated for this clip.</div>
             )}
           </div>
+        ) : tab === 'coach' ? (
+          <CoachPanel
+            sourceId={sourceId}
+            clip={clip}
+            onClipUpdated={onClipUpdated}
+            onSeek={onSeek}
+            onNotify={onNotify}
+          />
         ) : (
           <div className="inspector-scroll stack-14" data-tour="render">
             <RenderPanel

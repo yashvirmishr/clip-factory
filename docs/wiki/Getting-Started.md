@@ -107,7 +107,7 @@ If Electron exits with `app is undefined`, unset `ELECTRON_RUN_AS_NODE` for that
 4. Open the **Reel**. The selected clip appears in the **Inspector** and the **Monitor**.
 5. Approve or reject a few clips. Rejections can carry a short reason, which feeds the local learning loop.
 6. Open **Output** in the Inspector, pick a caption preset and framing mode, then choose **Render clip**.
-7. Download the MP4, or use **Handoff** to export a bundle, OTIO, FCP7 XML or EDL.
+7. Download the MP4, bake the whole reel, or use **Handoff** to export a bundle with OTIO, FCP7 XML, FCP X XML or EDL.
 
 If no ASR model or whisper binary is installed, transcription falls back to an API-supplied subtitle file or the deterministic stub. Subtitle import currently has no control in the interface; it is the `subtitle_path` field on `POST /api/sources/{id}/analyze`. If no local LLM server is running, scoring falls back to the labelled `heuristic-stub`. The full workflow still runs and each clip records which backend produced it. Install models when you want real transcription and model judging; see [Hardware and models](#hardware-and-models).
 
@@ -115,10 +115,12 @@ If no ASR model or whisper binary is installed, transcription falls back to an A
 
 Open **Hardware & models** from the Project panel footer, the header chip, or **File → Hardware & models**.
 
-The dialog reports CPU, memory, GPU, CUDA/Vulkan, free disk, ffmpeg and the recommended tier. The **Models** section lists curated ASR, VAD and LLM files with size, fit and install state.
+The dialog reports CPU, memory, GPU, CUDA/Vulkan, free disk, ffmpeg and the recommended tier. The **Models** section lists curated ASR, VAD, scoring and face-tracking files with size, fit and install state.
 
 - Downloads are resumable and leave a SHA-256 checksum beside the file.
 - **Activate** points the pipeline at a downloaded model and persists the choice.
+- For any language other than English, download a **multilingual** Whisper model; an `.en` model only ever produces English, whatever language the analysis asks for.
+- **Face tracking (YuNet)** has no Activate button: install it and the render picks it up. It also needs `opencv-python-headless` from `requirements-optional.txt`; without that package the app reports why it is not in use.
 - whisper.cpp is not bundled. Put `whisper-cli.exe` in `<data>\bin` or on `PATH`; the dialog reports when the binary is missing.
 - A local llama.cpp server is optional. Configure it with `CLIPPER_LLAMA_URL` or `llama_url` in `config.json`.
 

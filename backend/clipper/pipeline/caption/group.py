@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ...config import CaptionConfig
 from ...domain import ClipCandidate, Word
+from ...lang import UNSPACED_SCRIPTS, display_width, ends_sentence, join_tokens, script_of
 
 
 class CaptionWord(BaseModel):
@@ -37,27 +38,52 @@ class CaptionPage(BaseModel):
         return max(0.0, self.end - self.start)
 
 
-def _char_count(text: str) -> int:
-    return len(text.replace(" ", ""))
+def _columns(text: str) -> int:
+    """Screen columns, not code points: a Han glyph is two columns wide."""
+    return display_width(text.replace(" ", ""))
+
+
+def _unspaced(tokens: list[str]) -> bool:
+    return script_of("".join(tokens)) in UNSPACED_SCRIPTS
+
+
+def _page_budget(cfg: CaptionConfig, unspaced: bool) -> int:
+    """How many tokens a page may hold before the column check decides.
+
+    `max_words` counts whitespace tokens. A Han/Kana transcript tokenises to one
+    glyph per token, so four tokens is a four-character flicker page, not a
+    caption. In an unspaced script every token costs at least one column, so a
+    budget equal to the column budget can never fire before ``over_length``;
+    the display width becomes the real limit.
+    """
+    if not unspaced:
+        return cfg.max_words
+    return cfg.max_chars_per_line * cfg.max_lines
+
+
+def _wrap_tokens(
+    tokens: list[str], max_chars: int, max_lines: int, unspaced: bool
+) -> list[list[str]]:
+    """Greedy wrap by display width, dropping overflow tokens after max_lines."""
+    lines: list[list[str]] = [[]]
+    width = 0
+    for token in tokens:
+        token_width = _columns(token)
+        gap = 0 if unspaced or not lines[-1] else 1
+        if lines[-1] and width + gap + token_width > max_chars:
+            if len(lines) >= max_lines:
+                continue
+            lines.append([token])
+            width = token_width
+        else:
+            lines[-1].append(token)
+            width += gap + token_width
+    return [line for line in lines if line]
 
 
 def _wrap(words: list[str], max_chars: int, max_lines: int) -> list[str]:
-    lines: list[str] = []
-    current = ""
-    for token in words:
-        candidate = f"{current} {token}".strip()
-        if current and len(candidate) > max_chars:
-            lines.append(current)
-            current = token
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return lines[:max_lines] if lines else []
-
-
-def _ends_sentence(text: str) -> bool:
-    return text.strip().endswith((".", "!", "?", "…"))
+    wrapped = _wrap_tokens(words, max_chars, max_lines, _unspaced(words))
+    return [join_tokens(line, None) for line in wrapped]
 
 
 def group_words(words: list[Word], cfg: CaptionConfig | None = None) -> list[CaptionPage]:
@@ -71,12 +97,13 @@ def group_words(words: list[Word], cfg: CaptionConfig | None = None) -> list[Cap
             previous = current[-1]
             gap = word.start - previous.end
             projected = current + [word]
-            text = " ".join(w.text for w in projected)
+            unspaced = _unspaced([w.text for w in projected])
+            text = join_tokens([w.text for w in projected], None)
             span = max(0.05, word.end - current[0].start)
-            cps = _char_count(text) / span
-            over_length = len(text) > cfg.max_chars_per_line * cfg.max_lines
-            too_many = len(current) >= cfg.max_words
-            sentence_done = _ends_sentence(previous.text) and len(current) >= cfg.min_words
+            cps = _columns(text) / span
+            over_length = _columns(text) > cfg.max_chars_per_line * cfg.max_lines
+            too_many = len(current) >= _page_budget(cfg, unspaced)
+            sentence_done = ends_sentence(previous.text) and len(current) >= cfg.min_words
             would_over_cps = cps > cfg.cps_limit and len(current) >= cfg.min_words
             if gap > cfg.gap_split_s or too_many or over_length or sentence_done or would_over_cps:
                 pages.append(current)
@@ -104,17 +131,20 @@ def _page_for(index: int, group: list[CaptionWord], cfg: CaptionConfig) -> Capti
     Grouping and manual editing both come through here, so a hand-edited page
     gets the same wrapping, CPS and warning rules as a generated one.
     """
-    text = " ".join(w.text for w in group)
+    tokens = [w.text for w in group]
+    unspaced = _unspaced(tokens)
+    text = join_tokens(tokens, None)
     start, end = group[0].start, group[-1].end
     span = max(0.05, end - start)
-    cps = round(_char_count(text) / span, 1)
-    lines = _wrap([w.text for w in group], cfg.max_chars_per_line, cfg.max_lines)
+    cps = round(_columns(text) / span, 1)
+    wrapped = _wrap_tokens(tokens, cfg.max_chars_per_line, cfg.max_lines, unspaced)
+    lines = [join_tokens(line, None) for line in wrapped]
     warnings: list[str] = []
     if cps > cfg.cps_limit:
         warnings.append(f"cps {cps:.0f} exceeds {cfg.cps_limit:.0f}")
-    if any(len(line) > cfg.max_chars_per_line for line in lines):
+    if any(_columns(line) > cfg.max_chars_per_line for line in lines):
         warnings.append("line too long")
-    if len(" ".join(lines).split()) < len(group):
+    if sum(len(line) for line in wrapped) < len(group):
         warnings.append("text clipped by line budget")
     if end - start < cfg.min_page_s:
         warnings.append("page too short")
@@ -242,13 +272,14 @@ def _merge_short_pages(pages: list[list[Word]], cfg: CaptionConfig) -> list[list
             duration = group[-1].end - group[0].start
             gap = group[0].start - previous[-1].end
             combined = previous + group
-            chars = len(" ".join(word.text for word in combined))
+            unspaced = _unspaced([word.text for word in combined])
+            chars = _columns(join_tokens([word.text for word in combined], None))
             span = max(combined[-1].end - combined[0].start, 1e-3)
             short = previous_duration < cfg.min_page_s or duration < cfg.min_page_s
             if (
                 short
                 and gap <= cfg.gap_split_s
-                and len(combined) <= cfg.max_words
+                and len(combined) <= _page_budget(cfg, unspaced)
                 and chars <= char_budget
                 and chars / span <= cfg.cps_limit
             ):

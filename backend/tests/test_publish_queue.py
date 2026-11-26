@@ -80,6 +80,32 @@ def test_claim_next_marks_running_and_increments_attempts(clean_db, tmp_path):
     assert queue.claim_next() is None
 
 
+def test_claim_by_id_is_atomic_and_respects_backoff(clean_db, tmp_path):
+    account = connect()
+    job = enqueue(tmp_path, account)
+    claimed = queue.claim(job["id"])
+    assert claimed["status"] == "running"
+    assert claimed["attempts"] == 1
+    assert queue.claim(job["id"]) is None
+    queue.mark_failure(job["id"], "temporary", code="503", retryable=True)
+    assert queue.claim(job["id"]) is None
+    later = queue.get_job(job["id"])["next_attempt_at"] + 1
+    assert queue.claim(job["id"], now=later)["status"] == "running"
+
+
+def test_recover_returns_an_interrupted_upload_to_the_queue(clean_db, tmp_path):
+    account = connect()
+    job = enqueue(tmp_path, account)
+    queue.claim_next()
+    assert queue.get_job(job["id"])["status"] == "running"
+    pending = queue.recover()
+    saved = queue.get_job(job["id"])
+    assert pending == [job["id"]]
+    assert saved["status"] == "retry"
+    assert saved["stage"] == "resuming after restart"
+    assert queue.claim_next()["id"] == job["id"]
+
+
 def test_process_uploads_and_creates_a_post(clean_db, tmp_path, monkeypatch):
     account = connect()
     job = enqueue(tmp_path, account)

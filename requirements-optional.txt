@@ -1,0 +1,6 @@
+# Optional extras. The app runs without these; each one turns on a feature.
+#
+# Face-aware auto framing (pipeline/faces.py). Without it, framing follows
+# motion and skin density instead of faces. Install the face model itself from
+# Models inside the app after this package is present.
+opencv-python-headless>=4.10

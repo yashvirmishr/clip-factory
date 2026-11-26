@@ -219,3 +219,127 @@ def test_a_url_with_no_file_on_disk_is_an_error(tmp_path, monkeypatch):
 
     with pytest.raises(fetch.FetchError):
         fetch.fetch("https://example.com/v", tmp_path)
+
+def test_cookies_file_prefers_the_env_var(tmp_path, monkeypatch):
+    from clipper import config
+
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "cookies.txt").write_text("dropped in")
+    explicit = tmp_path / "explicit.txt"
+    explicit.write_text("explicit")
+
+    monkeypatch.setenv("CLIPPER_YTDLP_COOKIES", str(explicit))
+    monkeypatch.setattr(config.SETTINGS, "data_dir", data)
+    assert fetch.cookies_file() == explicit
+
+
+def test_cookies_file_falls_back_to_the_data_dir(tmp_path, monkeypatch):
+    from clipper import config
+
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.delenv("CLIPPER_YTDLP_COOKIES", raising=False)
+    monkeypatch.setattr(config.SETTINGS, "data_dir", data)
+
+    assert fetch.cookies_file() is None
+    (data / "cookies.txt").write_text("dropped in")
+    assert fetch.cookies_file() == data / "cookies.txt"
+
+
+def test_the_download_gets_the_cookies_the_preview_used(tmp_path, monkeypatch):
+    """A gated VOD previews fine and then fails to download, which is exactly the
+    path where cookies went missing."""
+
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("auth-token")
+    monkeypatch.setattr(fetch, "cookies_file", lambda: cookies)
+
+    seen = {}
+    module = _fake_ytdlp(tmp_path)
+    inner = module.YoutubeDL
+
+    class SpyYDL(inner):
+        def __init__(self, options):
+            seen.update(options)
+            super().__init__(options)
+
+    module.YoutubeDL = SpyYDL
+    monkeypatch.setitem(sys.modules, "yt_dlp", module)
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+
+    fetch.fetch("https://example.com/v", tmp_path)
+    assert seen["cookiefile"] == str(cookies)
+
+
+def _gated_twitch(tmp_path, monkeypatch, cookies):
+    monkeypatch.setattr(fetch, "cookies_file", lambda: cookies)
+    module = _fake_ytdlp(tmp_path)
+
+    class GatedYDL(module.YoutubeDL):
+        def extract_info(self, url, download=True):
+            # What yt-dlp actually raises for a gated archive.
+            raise TypeError("'NoneType' object is not subscriptable")
+
+    module.YoutubeDL = GatedYDL
+    monkeypatch.setitem(sys.modules, "yt_dlp", module)
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+
+
+def test_a_gated_twitch_vod_explains_why_and_names_the_cookies_path(
+    tmp_path, monkeypatch
+):
+    from clipper import config
+
+    monkeypatch.setattr(config.SETTINGS, "data_dir", tmp_path)
+    _gated_twitch(tmp_path, monkeypatch, cookies=None)
+
+    with pytest.raises(fetch.FetchError) as error:
+        fetch.fetch("https://www.twitch.tv/videos/2941229902", tmp_path)
+    message = str(error.value)
+
+    assert "NoneType" not in message
+    assert "logged-out" in message
+    # The hint is absolute or app-relative depending on where the data dir sits,
+    # so compare against the hint itself rather than guessing the form.
+    assert "cookies.txt" in message
+    assert fetch._cookies_hint() in message
+
+
+def test_a_gated_twitch_vod_with_cookies_says_the_account_lacks_access(
+    tmp_path, monkeypatch
+):
+    from clipper import config
+
+    monkeypatch.setattr(config.SETTINGS, "data_dir", tmp_path)
+    _gated_twitch(tmp_path, monkeypatch, cookies=tmp_path / "cookies.txt")
+
+    with pytest.raises(fetch.FetchError) as error:
+        fetch.fetch("https://www.twitch.tv/videos/2941229902", tmp_path)
+    assert "Re-export" in str(error.value)
+
+
+def test_the_twitch_explanation_is_not_borrowed_for_other_sites(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "cookies_file", lambda: None)
+    module = _fake_ytdlp(tmp_path)
+
+    class BrokenYDL(module.YoutubeDL):
+        def extract_info(self, url, download=True):
+            raise TypeError("'NoneType' object is not subscriptable")
+
+    module.YoutubeDL = BrokenYDL
+    monkeypatch.setitem(sys.modules, "yt_dlp", module)
+    monkeypatch.setattr(fetch, "available", lambda: "9999.1.1")
+
+    with pytest.raises(fetch.FetchError) as error:
+        fetch.fetch("https://example.com/v", tmp_path)
+    assert "Twitch" not in str(error.value)
+
+def test_the_cookies_hint_is_relative_inside_the_app_folder(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from clipper import config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(config.SETTINGS, "data_dir", tmp_path / "data")
+    assert fetch._cookies_hint() == str(Path("data") / "cookies.txt")

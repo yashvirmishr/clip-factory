@@ -238,7 +238,9 @@ class WhisperCppASR:
                 "-vsd", "500",
                 "-vp", "30",
             ]
-        if self.language and self.language != "auto":
+        # whisper.cpp defaults to English, so "auto" has to be asked for by
+        # name; omitting -l makes Detect automatically transcribe English.
+        if self.language:
             cmd += ["-l", self.language]
         if self.translate:
             cmd += ["-tr"]

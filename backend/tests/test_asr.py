@@ -112,8 +112,11 @@ def test_whisper_command_carries_language_and_translate(tmp_path):
     assert "-tr" in cmd
 
     plain = WhisperCppASR("whisper-cli", "model.bin")
-    assert "-tr" not in plain.build_command(tmp_path / "a.wav", tmp_path / "asr")
-    assert "-l" not in plain.build_command(tmp_path / "a.wav", tmp_path / "asr")
+    plain_cmd = plain.build_command(tmp_path / "a.wav", tmp_path / "asr")
+    assert "-tr" not in plain_cmd
+    # whisper.cpp defaults to English; "auto" must be passed explicitly or
+    # Detect automatically silently transcribes English.
+    assert plain_cmd[plain_cmd.index("-l") + 1] == "auto"
 
 
 def test_transcript_cache_is_language_and_mode_specific(tmp_path, monkeypatch):

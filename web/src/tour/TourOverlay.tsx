@@ -90,10 +90,10 @@ export function TourOverlay({
 
   const cardStyle = (() => {
     if (!rect) {
-      return {
-        left: Math.max(MARGIN, (size.width - CARD_W) / 2),
-        top: Math.max(MARGIN, Math.min(size.height - CARD_H - MARGIN, (size.height - CARD_H) / 2)),
-      }
+      // Centred cards are taller than CARD_H, so CSS centres them; only the
+      // horizontal position is measured here.
+      const width = Math.min(468, size.width - MARGIN * 2)
+      return { left: Math.max(MARGIN, (size.width - width) / 2) }
     }
     const rightRoom = size.width - rect.right
     const leftRoom = rect.left
@@ -164,6 +164,23 @@ export function TourOverlay({
 
   const primary = step.action
   const skipLabel = index === 0 ? 'Skip to the app' : 'Skip the tour'
+  // An anchored step whose control is not on screen (nothing selected yet, for
+  // example) would otherwise offer a button that cannot do anything. Fall back
+  // to the secondary action, or to simply moving on.
+  const actionMissing = Boolean(step.anchor) && !rect
+  const fallbackAction = step.secondary
+  const primaryLabel = actionMissing
+    ? (fallbackAction?.label ?? 'Continue')
+    : (primary?.label ?? 'Continue')
+  const runPrimary = () => {
+    if (actionMissing) {
+      if (fallbackAction) onAction(fallbackAction.id)
+      else onNext()
+      return
+    }
+    if (primary) onAction(primary.id)
+    else onNext()
+  }
 
   return (
     <div className="tour-layer">
@@ -227,7 +244,7 @@ export function TourOverlay({
             </button>
           </div>
           <div className="tour-foot-right">
-            {step.secondary ? (
+            {step.secondary && !actionMissing ? (
               <button
                 type="button"
                 className="btn sm ghost"
@@ -236,13 +253,8 @@ export function TourOverlay({
                 {step.secondary.label}
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn sm primary"
-              data-tour-primary
-              onClick={() => (primary ? onAction(primary.id) : onNext())}
-            >
-              {primary?.label ?? 'Continue'}
+            <button type="button" className="btn sm primary" data-tour-primary onClick={runPrimary}>
+              {primaryLabel}
             </button>
           </div>
         </footer>

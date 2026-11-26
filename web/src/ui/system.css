@@ -923,7 +923,7 @@ body {
 
 .centre-split .timeline-slot {
   min-height: 0;
-  height: clamp(200px, 30vh, 268px);
+  height: clamp(200px, calc(30vh + 10px), 278px);
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--line);
@@ -933,6 +933,14 @@ body {
 .centre-split .timeline-slot > .timeline {
   flex: 1;
   min-height: 0;
+}
+
+.centre-split .timeline-canvas {
+  height: 80px;
+}
+
+.centre-split .timeline-lanes {
+  top: 80px;
 }
 
 /* ---------------------------------------------------------- dialogs ------- */

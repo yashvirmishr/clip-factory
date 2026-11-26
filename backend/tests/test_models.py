@@ -30,6 +30,39 @@ def test_failed_memory_probe_falls_back_to_half_of_total(monkeypatch):
     assert models._available_gb() == pytest.approx(8.0)
 
 
+def test_the_manifest_offers_multilingual_speech_models():
+    by_id = {model["id"]: model for model in hardware.MODELS}
+    assert by_id["whisper-small"]["filename"] == "ggml-small.bin"
+    assert not by_id["whisper-small"]["filename"].endswith(".en.bin")
+    assert by_id["whisper-large-v3-turbo"]["filename"] == "ggml-large-v3-turbo-q5_0.bin"
+
+
+def test_advice_prefers_a_multilingual_speech_model():
+    advice = hardware.advise(
+        {
+            "os": "Windows",
+            "memory": {"total_gb": 16.0},
+            "primary_gpu": {"vendor": "intel", "vram_gb": 0.0},
+            "ffmpeg": True,
+        }
+    )
+    assert advice["asr"] is not None
+    assert not advice["asr"]["filename"].endswith(".en.bin")
+
+
+def test_the_face_model_is_listed_but_cannot_be_activated(tmp_path, monkeypatch):
+    monkeypatch.setattr(models, "models_dir", lambda: tmp_path)
+    items = {item.id: item for item in models.statuses("A")}
+    assert items["face-yunet"].kind == "face"
+    assert items["face-yunet"].installed is False
+    path = models.face_model_path()
+    assert path.parent == tmp_path
+    assert path.name == "face_detection_yunet_2023mar.onnx"
+    path.write_bytes(b"x" * 2048)
+    with pytest.raises(ValueError, match="cannot be activated"):
+        models.activate("face-yunet")
+
+
 def test_unknown_model_raises():
     with pytest.raises(KeyError):
         models.download("no-such-model")

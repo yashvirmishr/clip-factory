@@ -71,6 +71,9 @@ function splitTags(value: string): string[] {
 export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [platforms, setPlatforms] = useState<Platform[]>([])
+  const [platform, setPlatform] = useState('youtube')
+  const [accountId, setAccountId] = useState('')
+  const pickedPlatform = useRef(false)
   const [secretReady, setSecretReady] = useState(true)
   const [storeHint, setStoreHint] = useState('')
   const [clientId, setClientId] = useState('')
@@ -89,9 +92,18 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   const notifyRef = useRef(onNotify)
   notifyRef.current = onNotify
 
-  const youtube = accounts.find((account) => account.platform === 'youtube') ?? null
-  const limits = platforms.find((platform) => platform.platform === 'youtube')
+  const supported = platforms.filter(
+    (entry) => entry.adapter && (entry.platform === 'youtube' || entry.platform === 'x'),
+  )
+  const availableAccounts = accounts.filter((entry) => entry.platform === platform)
+  const account = availableAccounts.find((entry) => entry.id === accountId) ?? availableAccounts[0] ?? null
+  const limits = platforms.find((entry) => entry.platform === platform)
   const mediaPath = rendered?.path ?? ''
+  const isYouTube = platform === 'youtube'
+  const platformLabel = limits?.label ?? (isYouTube ? 'YouTube Shorts' : 'X')
+  const bodyOptions = VISIBILITY.filter((option) =>
+    isYouTube ? true : option.value === 'public',
+  )
 
   const load = useCallback(async () => {
     try {
@@ -99,7 +111,13 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
       setAccounts(payload.accounts)
       setPlatforms(payload.platforms)
       setSecretReady(payload.secret_store?.available !== false)
-      setStoreHint(payload.secret_store?.hint ?? '')
+      setStoreHint(payload.secret_store?.detail ?? '')
+      if (!pickedPlatform.current) {
+        const connected = payload.accounts.find(
+          (entry) => entry.platform === 'youtube' || entry.platform === 'x',
+        )
+        if (connected) setPlatform(connected.platform)
+      }
     } catch (failure) {
       setError((failure as Error).message)
     }
@@ -120,11 +138,35 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   }, [load, loadJobs])
 
   useEffect(() => {
+    const onFocus = () => {
+      void load()
+      void loadJobs()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [load, loadJobs])
+
+  useEffect(() => {
+    if (!availableAccounts.some((entry) => entry.id === accountId)) {
+      setAccountId(availableAccounts[0]?.id ?? '')
+    }
+  }, [availableAccounts, accountId])
+
+  useEffect(() => {
     setTitle(clip.llm?.title || clip.llm?.hook || '')
     setCaption(clip.llm?.hook || '')
     setHashtags('shorts')
     setIssues([])
   }, [clip.id, clip.llm?.title, clip.llm?.hook])
+
+  useEffect(() => {
+    setVisibility(platform === 'x' ? 'public' : 'private')
+    setHashtags(platform === 'x' ? '' : 'shorts')
+    setClientId('')
+    setClientSecret('')
+    setIssues([])
+    setChecked(false)
+  }, [platform])
 
   // Only an upload in flight is worth re-reading; keyed on that flag so the
   // timer is not torn down and recreated on every result.
@@ -137,7 +179,11 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
 
   const connect = async () => {
     if (!clientId.trim()) {
-      setError('Paste the OAuth client ID from your Google Cloud project first.')
+      setError(
+        isYouTube
+          ? 'Paste the OAuth client ID from your Google Cloud project first.'
+          : 'Paste the OAuth 2.0 client ID from your X developer app first.',
+      )
       return
     }
     setConnecting(true)
@@ -145,10 +191,13 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
     // Opened before the request so the browser does not treat it as a popup.
     const tab = window.open('', '_blank')
     try {
-      const start = await api.connectAccount('youtube', clientId.trim(), clientSecret.trim())
+      const start = await api.connectAccount(platform, clientId.trim(), clientSecret.trim())
       if (tab) tab.location.href = start.url
       else window.location.href = start.url
-      notifyRef.current('info', 'Finish the Google consent, then come back here.')
+      notifyRef.current(
+        'info',
+        isYouTube ? 'Finish the Google consent, then come back here.' : 'Finish the X consent, then come back here.',
+      )
     } catch (failure) {
       tab?.close()
       setError((failure as Error).message)
@@ -164,7 +213,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
     try {
       // Validate only: this route never enqueues an upload.
       const payload = await api.validatePublish({
-        platform: 'youtube',
+        platform,
         media_path: mediaPath,
         title,
         caption,
@@ -176,7 +225,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
       setChecked(true)
       notifyRef.current(
         payload.ok ? 'ok' : 'error',
-        payload.ok ? 'Fits YouTube Shorts limits.' : 'This draft needs changes before it can upload.',
+        payload.ok ? `Fits ${platformLabel} limits.` : 'This draft needs changes before it can upload.',
       )
     } catch (failure) {
       setError((failure as Error).message)
@@ -184,14 +233,14 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   }
 
   const publish = async () => {
-    if (!youtube || !mediaPath) return
+    if (!account || !mediaPath) return
     setBusy(true)
     setError(null)
     setIssues([])
     try {
       await api.publish({
-        platform: 'youtube',
-        account_id: youtube.id,
+        platform,
+        account_id: account.id,
         media_path: mediaPath,
         title,
         caption,
@@ -226,9 +275,9 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
       <header className="section-head">
         <div>
           <span className="label">Publish</span>
-          <h3>Send this clip to YouTube</h3>
+          <h3>Send this clip to {platformLabel}</h3>
         </div>
-        {youtube ? <span className="pill ok">{youtube.handle || youtube.display_name || 'connected'}</span> : null}
+        {account ? <span className="pill ok">{account.handle || account.display_name || 'connected'}</span> : null}
       </header>
 
       <div className="section-body stack-12">
@@ -239,17 +288,52 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
           </p>
         ) : null}
 
-        {youtube ? (
+        {supported.length > 1 ? (
+          <Field label="Destination">
+            <select
+              aria-label="Publishing destination"
+              value={platform}
+              onChange={(event) => {
+                pickedPlatform.current = true
+                setPlatform(event.target.value)
+              }}
+            >
+              {supported.map((entry) => (
+                <option key={entry.platform} value={entry.platform}>
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+
+        {availableAccounts.length > 1 ? (
+          <Field label="Account">
+            <select
+              aria-label="Publishing account"
+              value={account?.id ?? ''}
+              onChange={(event) => setAccountId(event.target.value)}
+            >
+              {availableAccounts.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.display_name || entry.handle || entry.external_id || entry.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+
+        {account ? (
           <div className="account-row">
             <span>
-              <b>{youtube.display_name || 'YouTube channel'}</b>
-              <em>{youtube.handle || youtube.external_id || ''}</em>
+              <b>{account.display_name || `${platformLabel} account`}</b>
+              <em>{account.handle || account.external_id || ''}</em>
             </span>
             <button
               type="button"
               className="btn ghost sm"
               onClick={async () => {
-                await api.disconnectAccount(youtube.id)
+                await api.disconnectAccount(account.id)
                 await load()
                 notifyRef.current('info', 'Account disconnected.')
               }}
@@ -260,14 +344,23 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
         ) : (
           <div className="publish-connect">
             <p className="field-hint">
-              YouTube upload needs your own Google OAuth client. In Google Cloud, create an OAuth
-              client of type <b>Web application</b> and add this exact redirect URI:
+              {isYouTube ? (
+                <>
+                  YouTube upload needs your own Google OAuth client. In Google Cloud, create an OAuth
+                  client of type <b>Web application</b> and add this exact redirect URI:
+                </>
+              ) : (
+                <>
+                  X publishing needs your own developer app. Enable <b>OAuth 2.0</b> with a
+                  confidential client and add this exact callback:
+                </>
+              )}
               <code className="bake-path">{REDIRECT_HINT}</code>
             </p>
             <TextField
               label="Client ID"
               value={clientId}
-              placeholder="…apps.googleusercontent.com"
+              placeholder={isYouTube ? '…apps.googleusercontent.com' : 'X OAuth 2.0 client ID'}
               onChange={setClientId}
             />
             <TextField
@@ -277,14 +370,14 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               placeholder="stored in the OS credential store"
               onChange={setClientSecret}
             />
-            <button type="button" className="btn sm block" onClick={() => void connect()} disabled={connecting}>
+            <button type="button" className="btn sm block" onClick={() => void connect()} disabled={connecting || !secretReady}>
               {connecting ? <Spinner label="" /> : <Icon name="external" size={13} />}
-              Connect YouTube
+              Connect {platformLabel}
             </button>
           </div>
         )}
 
-        {youtube ? (
+        {account ? (
           <>
             {!rendered ? (
               <p className="panel-note">
@@ -292,20 +385,22 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               </p>
             ) : null}
 
-            <TextField
-              label="Title"
-              value={title}
-              valueLabel={`${title.length}/${limits?.title_limit ?? 100}`}
-              maxLength={limits?.title_limit ?? 100}
-              onChange={setTitle}
-            />
+            {isYouTube ? (
+              <TextField
+                label="Title"
+                value={title}
+                valueLabel={`${title.length}/${limits?.title_limit ?? 100}`}
+                maxLength={limits?.title_limit ?? 100}
+                onChange={setTitle}
+              />
+            ) : null}
 
             <TextField
-              label="Description"
+              label={isYouTube ? 'Description' : 'Post text'}
               value={caption}
-              valueLabel={`${caption.length}/${limits?.caption_limit ?? 5000}`}
+              valueLabel={`${caption.length}/${limits?.caption_limit ?? 280}`}
               rows={3}
-              maxLength={limits?.caption_limit ?? 5000}
+              maxLength={limits?.caption_limit ?? 280}
               onChange={setCaption}
             />
 
@@ -313,7 +408,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               label="Hashtags"
               value={hashtags}
               valueLabel={`${splitTags(hashtags).length}/${limits?.max_hashtags ?? 15}`}
-              placeholder="shorts, highlights"
+              placeholder={isYouTube ? 'shorts, highlights' : 'clip, highlight'}
               onChange={setHashtags}
             />
 
@@ -324,24 +419,26 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                   value={visibility}
                   onChange={(event) => setVisibility(event.target.value)}
                 >
-                  {VISIBILITY.map((option) => (
+                  {bodyOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
               </Field>
-              <Field label="Audience">
-                <button
-                  type="button"
-                  className="chip"
-                  data-on={madeForKids}
-                  onClick={() => setMadeForKids((value) => !value)}
-                  title="YouTube requires this to be declared"
-                >
-                  {madeForKids ? 'Made for kids' : 'Not for kids'}
-                </button>
-              </Field>
+              {isYouTube ? (
+                <Field label="Audience">
+                  <button
+                    type="button"
+                    className="chip"
+                    data-on={madeForKids}
+                    onClick={() => setMadeForKids((value) => !value)}
+                    title="YouTube requires this to be declared"
+                  >
+                    {madeForKids ? 'Made for kids' : 'Not for kids'}
+                  </button>
+                </Field>
+              ) : null}
             </div>
 
             {issues.length ? (
@@ -356,10 +453,10 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               type="button"
               className="btn primary block"
               onClick={() => void publish()}
-              disabled={busy || !mediaPath || !title.trim()}
+              disabled={busy || !secretReady || !mediaPath || !(isYouTube ? title : caption).trim()}
             >
               {busy ? <Spinner label="" /> : <Icon name="upload" size={14} />}
-              Queue upload
+              Queue upload to {platformLabel}
             </button>
             <p className="field-hint">
               {mediaPath
@@ -367,7 +464,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                 : 'Drive the render above and the finished file appears here.'}
             </p>
             <button type="button" className="btn ghost sm block" onClick={() => void check()} disabled={!mediaPath}>
-              {checked ? 'Check again' : 'Check against YouTube limits'}
+              {checked ? 'Check again' : `Check against ${platformLabel} limits`}
             </button>
             {checked && !issues.length ? (
               <p className="field-hint">{limits ? `Fits ${limits.label}: ${limits.aspect}, ${limits.min_duration_s}–${limits.max_duration_s}s.` : 'Fits the platform limits.'}</p>

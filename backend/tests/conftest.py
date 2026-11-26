@@ -9,6 +9,9 @@ if "CLIPPER_DATA_DIR" not in os.environ:
     _TEST_DATA_DIR = tempfile.mkdtemp(prefix="clipper-test-")
     os.environ["CLIPPER_DATA_DIR"] = _TEST_DATA_DIR
 os.environ.setdefault("CLIPPER_SECRET_BACKEND", "memory")
+os.environ.setdefault("CLIPPER_DISABLE_WEEKLY", "1")
+os.environ.setdefault("CLIPPER_DISABLE_PUBLISH_SCHEDULER", "1")
+os.environ.setdefault("CLIPPER_DISABLE_REVOKE", "1")
 
 import pytest  # noqa: E402
 
@@ -49,14 +52,16 @@ def clean_db():
     policy.clear_for_tests()
     with db.connect() as conn:
         for table in (
-            "post_metrics", "posts", "publish_jobs", "account_snapshots", "accounts",
-            "decisions", "hook_edits", "analyses", "sources", "state",
+            "suggestions", "personal_models", "post_metrics", "posts", "publish_jobs",
+            "account_snapshots", "accounts", "decisions", "hook_edits", "clip_edits",
+            "analyses", "sources", "state",
         ):
             conn.execute(f"DELETE FROM {table}")
     yield
     with db.connect() as conn:
         for table in (
-            "post_metrics", "posts", "publish_jobs", "account_snapshots", "accounts",
-            "decisions", "hook_edits", "analyses", "sources", "state",
+            "suggestions", "personal_models", "post_metrics", "posts", "publish_jobs",
+            "account_snapshots", "accounts", "decisions", "hook_edits", "clip_edits",
+            "analyses", "sources", "state",
         ):
             conn.execute(f"DELETE FROM {table}")

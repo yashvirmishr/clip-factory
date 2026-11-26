@@ -95,7 +95,7 @@ clips stay in the list until you reject or trim them; nothing is deleted.
 
 **I expected the hook in the MP4.** It is not burned in. The hook appears in the monitor overlay and travels in the OTIO marker, EDL comment and manifest. Add it as a title in your editor if you want it on screen.
 
-**The crop misses the speaker.** Auto framing uses motion and skin density unless a face model is configured (`framing.face_model` plus the optional OpenCV package), and even then it follows one subject per shot. It can be wrong on a wide shot, an animated overlay or a dark scene. Press **Inspect framing** in the render panel to see the crop path before spending a render; `GET /api/framing/status` says whether faces are in use. Use `crop` or `blur` framing, or fix the shot in the editor.
+**The crop misses the speaker.** Auto framing uses motion and skin density until the face tier is installed: `pip install -r requirements-optional.txt` for OpenCV, then download **Face tracking (YuNet)** in Models. Even then it follows one subject per shot and can be wrong on a wide shot, an animated overlay or a dark scene. Press **Inspect framing** in the render panel to see the crop path before spending a render; `GET /api/framing/status` says whether faces are in use and what is missing. Use `crop` or `blur` framing, or fix the shot in the editor.
 
 **The video is black or will not play.** Re-render with force. If it persists, check the encoder reported on the job; a broken hardware encode can produce an unplayable file, and the app's retry should have produced an H.264 fallback. If not, force a fresh render and report the encoder and ffmpeg stderr.
 
@@ -103,11 +103,11 @@ clips stay in the list until you reject or trim them; nothing is deleted.
 
 **Media is offline after import.** Exports reference absolute paths and do not copy media. Import into the NLE on the same machine, or relink to the same files at their original paths.
 
-**The NLE will not open the zip.** Unzip the bundle first. Import `reel.otio` or `reel.xml`; the zip is a delivery container, not a project file.
+**The NLE will not open the zip.** Unzip the bundle first. Import `reel.otio`, `reel.xml` or `reel.fcpxml`; the zip is a delivery container, not a project file. Final Cut Pro 10.6.8+ takes `reel.fcpxml`.
 
 **Timecode drifts at 29.97.** Timecode is non-drop-frame. The app does not offer drop-frame; use the NLE's interpretation deliberately.
 
-**The EDL is missing something.** EDL is the lowest-fidelity format: cuts and comments, no complex reframing or transitions. Use OTIO or FCP7 XML for a fuller handoff.
+**The EDL is missing something.** EDL is the lowest-fidelity format: cuts and comments, no complex reframing or transitions. Use OTIO, FCP7 XML or FCP X XML for a fuller handoff.
 
 **No clips export.** Export includes ranked clips, not approved-only clips, but a source with no ranked candidates returns 409. Analyze first.
 
