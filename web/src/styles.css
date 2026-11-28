@@ -5607,6 +5607,14 @@ body {
 .publish-scroll .field-hint { text-align:left; font-size:11.5px; line-height:1.5 }
 .publish-scroll .panel-empty { text-align:left; padding:2px 0; font-size:12px }
 .publish-scroll .label { font-size:11px }
+.publish-also { display:flex; flex-direction:column; gap:3px }
+.publish-also-row {
+  display:flex; align-items:center; gap:6px; padding:4px 6px; border:1px solid var(--line);
+  border-radius:3px; background:var(--panel-2); font-size:11.5px; color:var(--ink-2); cursor:pointer
+}
+.publish-also-row:hover { border-color:var(--accent-line) }
+.publish-also-row input { accent-color:var(--accent); margin:0 }
+.publish-also-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .publish-scroll .insight-metrics { grid-template-columns:repeat(auto-fit,minmax(120px,1fr)) }
 .publish-scroll .insight-metrics dt { font-size:9px }
 .publish-scroll .insight-metrics dd { font-size:12px }

@@ -66,7 +66,9 @@ Retryable failures back off up to an hour and are retried up to three times. A s
 
 **Retry** is for a `failed` or `cancelled` upload. A job that is still running cannot be retried, and neither can one that already reached `done`: posting the same file twice means a new render and a new job, so a retry can never duplicate a post.
 
-Only one upload runs at a time, by the same resource governor that serializes analysis and rendering.
+Only one upload runs at a time, by the same resource governor that serializes analysis and rendering. Posting to several accounts on one platform queues one job per account; they upload in turn.
+
+**Also post to** appears when the selected platform has more than one connected account. Every ticked account gets its own durable job and its own retry state, so a failure on one channel does not block the others.
 
 A finished upload records the feature vector, signals and judge score the clip carried, so the post can join the performance model once its engagement settles. Posts imported from an existing channel have no such vector and only contribute the per-account baseline. See [Learning from your posts](Learning.md).
 
@@ -74,7 +76,7 @@ A finished upload records the feature vector, signals and judge score the clip c
 
 - **No TikTok or Instagram upload.** Their OAuth entries exist, but `POST /api/publish` refuses them with a clear message. Use the Output tab's **Handoff** section for now.
 - **No scheduling calendar.** Each publish form takes one time; there is no week view, no recurring slot and no bulk rescheduling.
-- **No multi-platform posting in one action.** One draft, one account, one upload.
+- **No multi-platform posting in one action.** One draft, one platform. Within that platform, **Also post to** fans the same upload out to other connected accounts; YouTube and X still need separate drafts.
 - **No title/hook generation for the platform.** Editing the draft text is manual; the hook and title come from the analysis.
 - **No hosted callback.** Each user brings a developer app. That keeps tokens on the machine and keeps the project free of a credential relay.
 

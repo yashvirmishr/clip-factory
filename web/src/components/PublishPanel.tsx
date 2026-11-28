@@ -83,6 +83,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   const [platforms, setPlatforms] = useState<Platform[]>([])
   const [platform, setPlatform] = useState('youtube')
   const [accountId, setAccountId] = useState('')
+  const [alsoIds, setAlsoIds] = useState<string[]>([])
   const pickedPlatform = useRef(false)
   const [secretReady, setSecretReady] = useState(true)
   const [storeHint, setStoreHint] = useState('')
@@ -177,6 +178,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
     setClientSecret('')
     setIssues([])
     setChecked(false)
+    setAlsoIds([])
   }, [platform])
 
   // Only an upload in flight is worth re-reading; a job scheduled for later
@@ -265,32 +267,46 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
     setBusy(true)
     setError(null)
     setIssues([])
+    let queued = 0
     try {
-      await api.publish({
-        platform,
-        account_id: account.id,
-        media_path: mediaPath,
-        title,
-        caption,
-        hashtags: splitTags(hashtags),
-        visibility,
-        made_for_kids: madeForKids,
-        source_id: sourceId,
-        clip_id: clip.id,
-        scheduled_at: when || undefined,
-      })
+      const targets = [
+        account,
+        ...availableAccounts.filter(
+          (entry) => entry.id !== account.id && alsoIds.includes(entry.id),
+        ),
+      ]
+      for (const target of targets) {
+        await api.publish({
+          platform,
+          account_id: target.id,
+          media_path: mediaPath,
+          title,
+          caption,
+          hashtags: splitTags(hashtags),
+          visibility,
+          made_for_kids: madeForKids,
+          source_id: sourceId,
+          clip_id: clip.id,
+          scheduled_at: when || undefined,
+        })
+        queued += 1
+      }
+      const to = targets.length > 1 ? ` to ${targets.length} accounts` : ''
       notifyRef.current(
         'ok',
         when && !limits?.native_schedule
-          ? 'Scheduled. It uploads at that time while the app is running.'
+          ? `Scheduled${to}. It uploads at that time while the app is running.`
           : when
-            ? 'Scheduled with the platform. Progress is below.'
-            : 'Queued for upload. Progress is below.',
+            ? `Scheduled${to} with the platform. Progress is below.`
+            : `Queued${to} for upload. Progress is below.`,
       )
       setScheduleAt('')
+      setAlsoIds([])
       void loadJobs()
     } catch (failure) {
-      const message = (failure as Error).message
+      const message = queued
+        ? `${(failure as Error).message} (${queued} account${queued === 1 ? '' : 's'} queued.)`
+        : (failure as Error).message
       setError(message)
       notifyRef.current('error', message)
     } finally {
@@ -357,6 +373,31 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                 </option>
               ))}
             </select>
+          </Field>
+        ) : null}
+
+        {availableAccounts.length > 1 && account ? (
+          <Field label="Also post to">
+            <div className="publish-also">
+              {availableAccounts
+                .filter((entry) => entry.id !== account.id)
+                .map((entry) => (
+                  <label key={entry.id} className="publish-also-row">
+                    <input
+                      type="checkbox"
+                      checked={alsoIds.includes(entry.id)}
+                      onChange={(event) =>
+                        setAlsoIds((current) =>
+                          event.target.checked
+                            ? [...current, entry.id]
+                            : current.filter((id) => id !== entry.id),
+                        )
+                      }
+                    />
+                    <span>{entry.display_name || entry.handle || entry.external_id || entry.id}</span>
+                  </label>
+                ))}
+            </div>
           </Field>
         ) : null}
 
