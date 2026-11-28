@@ -857,10 +857,10 @@ export default function App() {
   // A brand-new install with no sources gets the tour by itself, once.
   useEffect(() => {
     if (tour.state.status !== 'unseen' || startedEmpty !== true) return
-    if (engine !== 'online' || setupOpen) return
+    if (engine !== 'online' || sources.length > 0 || setupOpen) return
     const timer = window.setTimeout(() => tour.start(), 900)
     return () => window.clearTimeout(timer)
-  }, [tour.state.status, engine, setupOpen, startedEmpty, tour.start])
+  }, [tour.state.status, engine, sources.length, setupOpen, startedEmpty, tour.start])
 
   const onTourAction = useCallback(
     (action: TourActionId) => {
