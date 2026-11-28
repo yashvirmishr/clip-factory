@@ -22,6 +22,12 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+# OneDrive can make the default TEMP folder refuse writes, which leaves pip
+# and Vite spinning. Keep temporary files inside the checkout from the start.
+$tempDir = Join-Path $repoRoot '.buildtmp'
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+$env:TEMP = $tempDir
+$env:TMP = $tempDir
 $venvDir = Join-Path $repoRoot '.venv'
 $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $requirements = Join-Path $repoRoot 'requirements.txt'
@@ -146,7 +152,8 @@ function Main {
     }
 
     Write-Step "Installing Python dependencies"
-    Invoke-Native -Exe $venvPython -Arguments @("-m", "pip", "install", "--upgrade", "pip", "--disable-pip-version-check") -What "Upgrading pip"
+    # No pip self-upgrade: it re-checks the package index even when pip is
+    # current, and that check can stall for minutes on a slow network.
     Invoke-Native -Exe $venvPython -Arguments @("-m", "pip", "install", "--disable-pip-version-check", "-r", $requirements) -What "Installing requirements.txt"
     Write-Ok "Python dependencies are up to date."
 
@@ -157,9 +164,7 @@ function Main {
     else {
         Write-Step "Installing and building the web UI"
         $nodeModules = Join-Path $webDir "node_modules"
-        $buildTmp = Join-Path $repoRoot ".buildtmp"
-        $oldTemp = $env:TEMP
-        $oldTmp = $env:TMP
+        $buildTmp = $tempDir
         Push-Location -LiteralPath $webDir
         try {
             if (Test-Path -LiteralPath $nodeModules) {
@@ -169,17 +174,10 @@ function Main {
                 Invoke-Native -Exe "npm" -Arguments @("ci") -What "npm ci"
             }
 
-            # OneDrive can make the default TEMP folder refuse writes (EPERM);
-            # a repo-local temp folder keeps the build inside the checkout.
-            New-Item -ItemType Directory -Path $buildTmp -Force | Out-Null
-            $env:TEMP = $buildTmp
-            $env:TMP = $buildTmp
             Invoke-Native -Exe "npm" -Arguments @("run", "build") -What "npm run build"
             Write-Ok "Web UI built into web\dist."
         }
         finally {
-            $env:TEMP = $oldTemp
-            $env:TMP = $oldTmp
             Pop-Location
             if (Test-Path -LiteralPath $buildTmp) {
                 Remove-Item -LiteralPath $buildTmp -Recurse -Force -ErrorAction SilentlyContinue
