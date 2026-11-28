@@ -945,6 +945,28 @@ def activate_model(model_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.get("/api/tools")
+def list_tools() -> dict:
+    """The external programs, and whether this platform can fetch them."""
+    from . import tools
+
+    return tools.status()
+
+
+@app.post("/api/tools/{tool_id}/install")
+def install_tool(tool_id: str) -> dict:
+    """Download and unpack ffmpeg or whisper.cpp into <data>/bin."""
+    from . import tools
+
+    if tools.find(tool_id) is None:
+        raise HTTPException(status_code=404, detail="unknown tool")
+
+    def task(progress):
+        return tools.install(tool_id, progress=progress)
+
+    return JOBS.submit("tool", task).to_dict()
+
+
 @app.get("/api/readiness")
 def readiness_check() -> dict:
     """Everything the setup cards need, from a single probe of the machine."""

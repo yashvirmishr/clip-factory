@@ -37,6 +37,10 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
   const [job, setJob] = useState<JobState | null>(null)
   const [copied, setCopied] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [toolJob, setToolJob] = useState<JobState | null>(null)
+  const [toolId, setToolId] = useState<string | null>(null)
+  const [toolKind, setToolKind] = useState<string | null>(null)
+  const [toolError, setToolError] = useState<{ id: string; message: string } | null>(null)
 
   // A download is the only long action on this screen. Follow the job until it
   // settles, then re-read readiness so the row turns green on its own.
@@ -57,6 +61,45 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
       700,
     )
   }, [downloadingId, onRefresh])
+
+  // Installing a program follows the same shape, but it is a separate job: a
+  // model download and an ffmpeg download can be retried independently.
+  useEffect(() => {
+    if (!toolId) return
+    return watchJob(
+      toolId,
+      (next) => {
+        setToolJob(next)
+        if (next.status === 'done') {
+          setToolId(null)
+          setToolJob(null)
+          setToolKind(null)
+          onRefresh()
+        } else if (next.status === 'error' || next.status === 'cancelled') {
+          setToolId(null)
+          setToolKind(null)
+          setToolError({
+            id: toolId,
+            message: next.error || 'The install stopped before it finished.',
+          })
+        }
+      },
+      700,
+    )
+  }, [toolId, onRefresh])
+
+  const installTool = async (id: string) => {
+    setToolError(null)
+    setToolKind(id)
+    try {
+      const started = await api.installTool(id)
+      setToolJob(started)
+      setToolId(started.id)
+    } catch (problem) {
+      setToolKind(null)
+      setToolError({ id, message: (problem as Error).message })
+    }
+  }
 
   if (variant === 'welcome') {
     return (
@@ -90,12 +133,16 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
     )
   }
 
-  const { machine, video, speech, scoring } = readiness
+  const { machine, video, speech, scoring, tools } = readiness
   const runner = scoring.runner
   const recommended = speech.recommended
   const speechReady = speech.ready
   const ffmpeg = video.ffmpeg
   const running = job && (job.status === 'running' || job.status === 'queued')
+  const toolBusy = Boolean(
+    toolId && toolJob && (toolJob.status === 'running' || toolJob.status === 'queued'),
+  )
+  const whisperTool = tools?.tools.find((tool) => tool.id === 'whisper')
 
   return (
     <div className="tour-readiness">
@@ -114,11 +161,27 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
                 ? 'ffmpeg found. Cutting, captions and rendering will work.'
                 : 'ffmpeg is not installed. Nothing can be cut or rendered until it is.'}
             </p>
+            {!ffmpeg && toolError?.id === 'ffmpeg' ? (
+              <p className="setup-progress" data-tone="bad">
+                {toolError.message}
+              </p>
+            ) : null}
           </div>
           {!ffmpeg ? (
-            <button type="button" className="setup-fix" onClick={onRefresh}>
-              Check again
-            </button>
+            tools?.automatic ? (
+              <button
+                type="button"
+                className="setup-fix"
+                disabled={toolBusy && toolKind === 'ffmpeg'}
+                onClick={() => void installTool('ffmpeg')}
+              >
+                {toolBusy && toolKind === 'ffmpeg' ? 'Installing…' : 'Install'}
+              </button>
+            ) : (
+              <button type="button" className="setup-fix" onClick={onRefresh}>
+                Check again
+              </button>
+            )
           ) : null}
         </div>
 
@@ -269,38 +332,83 @@ export function SetupCards({ variant, readiness, error, onRefresh, onOpenSetup }
               <div className="setup-runner-head">
                 <span className="tour-eyebrow">Still missing: the speech program</span>
               </div>
-              <>
-                <p className="setup-small">
-                  Download whisper.cpp once and put <b>whisper-cli.exe</b> in this folder:
-                </p>
-                <code className="setup-path">{speech.bin_dir}</code>
-                <div className="setup-path-actions">
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={() => {
-                      void copyPath(speech.bin_dir).then((ok) => {
-                        setCopied(ok)
-                        window.setTimeout(() => setCopied(false), 1600)
-                      })
-                    }}
-                  >
-                    {copied ? 'Copied' : 'Copy path'}
-                  </button>
-                  {window.clipFactory?.openPath ? (
+              {tools?.automatic ? (
+                <>
+                  <p className="setup-small">
+                    The Windows build of whisper.cpp
+                    {whisperTool ? ` (${whisperTool.size_mb} MB)` : ''} goes into the folder the
+                    app already checks, after its pinned hash is verified.
+                  </p>
+                  <div className="setup-path-actions">
+                    <button
+                      type="button"
+                      className="btn sm primary"
+                      disabled={toolBusy && toolKind === 'whisper'}
+                      onClick={() => void installTool('whisper')}
+                    >
+                      {toolBusy && toolKind === 'whisper'
+                        ? 'Installing…'
+                        : 'Install whisper.cpp'}
+                    </button>
+                    <button type="button" className="btn sm ghost" onClick={onRefresh}>
+                      Check again
+                    </button>
+                  </div>
+                  {toolBusy && toolKind === 'whisper' && toolJob ? (
+                    <>
+                      <div className="meter" aria-hidden="true">
+                        <i style={{ width: `${Math.round((toolJob.pct ?? 0) * 100)}%` }} />
+                      </div>
+                      <p className="setup-progress" aria-live="polite">
+                        {toolJob.detail || 'downloading'} ·
+                        {Math.round((toolJob.pct ?? 0) * 100)}%
+                      </p>
+                    </>
+                  ) : null}
+                  {toolError?.id === 'whisper' ? (
+                    <p className="setup-progress" data-tone="bad">
+                      {toolError.message}
+                    </p>
+                  ) : null}
+                  <p className="setup-small">
+                    Already have your own build? Put <b>whisper-cli.exe</b> in{' '}
+                    <code>{speech.bin_dir}</code> and press Check again.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="setup-small">
+                    Download whisper.cpp once and put <b>whisper-cli.exe</b> in this folder:
+                  </p>
+                  <code className="setup-path">{speech.bin_dir}</code>
+                  <div className="setup-path-actions">
                     <button
                       type="button"
                       className="btn sm ghost"
-                      onClick={() => void window.clipFactory?.openPath(speech.bin_dir ?? '')}
+                      onClick={() => {
+                        void copyPath(speech.bin_dir).then((ok) => {
+                          setCopied(ok)
+                          window.setTimeout(() => setCopied(false), 1600)
+                        })
+                      }}
                     >
-                      Open folder
+                      {copied ? 'Copied' : 'Copy path'}
                     </button>
-                  ) : null}
-                  <button type="button" className="btn sm ghost" onClick={onRefresh}>
-                    Check again
-                  </button>
-                </div>
-              </>
+                    {window.clipFactory?.openPath ? (
+                      <button
+                        type="button"
+                        className="btn sm ghost"
+                        onClick={() => void window.clipFactory?.openPath(speech.bin_dir ?? '')}
+                      >
+                        Open folder
+                      </button>
+                    ) : null}
+                    <button type="button" className="btn sm ghost" onClick={onRefresh}>
+                      Check again
+                    </button>
+                  </div>
+                </>
+                )}
             </div>
           )}
 

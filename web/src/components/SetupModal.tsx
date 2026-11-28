@@ -4,6 +4,7 @@ import { Modal } from '../workspace/Modal'
 import { Spinner } from '../workspace/ui'
 import { RunnerSetting } from '../tour/RunnerSetting'
 import { ModelList } from './ModelList'
+import { ToolList } from './ToolList'
 
 interface Props {
   hardware: Hardware | null
@@ -114,6 +115,17 @@ export function SetupModal({ hardware, error, onClose, onRefresh }: Props) {
                 <dd>{hardware.profile.os}</dd>
               </div>
             </dl>
+          </section>
+
+          <section className="setup-section">
+            <header className="section-head">
+              <div>
+                <span className="label">Programs</span>
+                <h3>ffmpeg · whisper.cpp</h3>
+              </div>
+              <span className="field-hint">Needed to cut and transcribe</span>
+            </header>
+            <ToolList />
           </section>
 
           <section className="setup-section">

@@ -10,7 +10,7 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 - Errors use FastAPI's `{"detail": "..."}` envelope with a 4xx or 5xx status.
 - Long operations return a job immediately. Follow it with `GET /api/jobs/{id}/events` (server-sent events, one frame per change, closed after the last) or poll `GET /api/jobs/{id}`. Both routes build their payload from one function, so they cannot disagree.
 - A completed job exposes its result as `analysis`, regardless of whether it was an analysis, a download or a render.
-- There are two lanes. A second compute-heavy request (analysis, render) queues behind the first; downloads and uploads use the separate I/O lane and do not block it.
+- There are two lanes. A second compute-heavy request (analysis, render) queues behind the first; downloads, uploads and tool installs use the separate I/O lane and do not block it.
 
 ### Job shape
 
@@ -38,6 +38,8 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 | GET | `/api/health` | `ok`, version, data dir, busy flag, llama URL, whisper path |
 | GET | `/api/diagnostics` | Versions, data-directory sizes, disk free, for a bug report |
 | GET | `/api/readiness` | Every setup card's check, from one probe of the machine |
+| GET | `/api/tools` | ffmpeg and whisper.cpp: installed, resolved path, pinned version, and whether automatic install is supported |
+| POST | `/api/tools/{tool_id}/install` | Download, verify and unpack one tool as a `tool` job; 404 for an unknown id |
 | GET | `/api/hardware?refresh=false` | Hardware profile, tier advice, model recommendations |
 | GET | `/api/ffmpeg` | libass availability and hardware encoder availability |
 | GET | `/api/settings/llm` | Scoring runner address, its source and whether it answers |
@@ -46,7 +48,7 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 
 `/api/ffmpeg` calls ffmpeg directly on every request. It reports `available: true` when the ffmpeg build has the `ass` filter, which is the libass requirement for burning captions.
 
-`/api/readiness` is the same payload the setup cards and first-run tour read, so a check cannot disagree between the card and the API. `/api/diagnostics` never leaves the machine; the about panel is the only consumer.
+`/api/readiness` is the same payload the setup cards and first-run tour read, so a check cannot disagree between the card and the API. Its `tools` field is the same payload as `GET /api/tools`. `/api/diagnostics` never leaves the machine; the about panel is the only consumer.
 
 ## Sources
 

@@ -8,7 +8,7 @@ This page takes you from a clean checkout to a rendered clip. The application ha
 |---|---|
 | Python 3.11+ | The API, pipeline and tests |
 | Node.js 20.19+ or 22.12+ | Vite 7 and the React frontend |
-| ffmpeg and ffprobe on `PATH` | Media probing, audio extraction, rendering and export; the build must include libass |
+| ffmpeg and ffprobe on `PATH` | Media probing, audio extraction, rendering and export; the build must include libass. On Windows the app can install a pinned build from Programs |
 | A Chromium-based browser or the Electron shell | Video preview and the full workspace |
 | Optional: whisper.cpp binary | Real transcription; without it the app can use an API-supplied subtitle file or the deterministic stub |
 | Optional: a local llama.cpp server | LLM re-ranking; without it the labelled heuristic stub is used |
@@ -108,8 +108,9 @@ prompt). It is unsigned, so Windows SmartScreen warns on first launch. Pass
 `-SkipWeb` or `-SkipPython` to reuse existing inputs, and `-NoInstall` when
 `desktop\node_modules` is already current.
 
-The installed app carries its own Python and the built UI; ffmpeg, whisper.cpp
-and any local model still come from the machine, exactly as in a checkout.
+The installed app carries its own Python and the built UI. ffmpeg, whisper.cpp
+and models are downloaded on demand from the setup dialog, so the installer
+stays small and the licenses stay with the publisher.
 
 ## Run the built app
 
@@ -149,13 +150,13 @@ If no ASR model or whisper binary is installed, transcription falls back to an A
 
 Open **Hardware & models** from the rail's **Settings** menu, the setup banner, or **File → Hardware & models**.
 
-The dialog reports CPU, memory, GPU, CUDA/Vulkan, free disk, ffmpeg and the recommended tier. The **Models** section lists curated ASR, VAD, scoring and face-tracking files with size, fit and install state.
+The dialog reports CPU, memory, GPU, CUDA/Vulkan, free disk, ffmpeg and the recommended tier. The **Programs** section installs ffmpeg and whisper.cpp; the **Models** section lists curated ASR, VAD, scoring and face-tracking files with size, fit and install state.
 
 - Downloads are resumable and leave a SHA-256 checksum beside the file.
 - **Activate** points the pipeline at a downloaded model and persists the choice.
 - For any language other than English, download a **multilingual** Whisper model; an `.en` model only ever produces English, whatever language the analysis asks for.
 - **Face tracking (YuNet)** has no Activate button: install it and the render picks it up. It also needs `opencv-python-headless` from `requirements-optional.txt`; without that package the app reports why it is not in use.
-- whisper.cpp is not bundled. Put `whisper-cli.exe` in `<data>\bin` or on `PATH`; the dialog reports when the binary is missing.
+- whisper.cpp is not bundled. **Programs → Install whisper.cpp** fetches the pinned Windows build; otherwise put `whisper-cli.exe` in `<data>\bin` or on `PATH`. The dialog reports when the binary is missing.
 - A local llama.cpp server is optional. Configure it with `CLIPPER_LLAMA_URL` or `llama_url` in `config.json`.
 
 ## Where data lives
@@ -175,7 +176,7 @@ Set `CLIPPER_DATA_DIR` to override it. The directory contains:
 | `artifacts/` | Per-source transcripts, peaks, signals and candidate artifacts |
 | `models/` | Downloaded model files and checksums |
 | `renders/` | Rendered MP4 masters |
-| `bin/` | Optional local binaries such as `whisper-cli` |
+| `bin/` | Installed or hand-placed binaries such as `ffmpeg` and `whisper-cli`; first on `PATH` |
 | `config.json` | Optional settings overrides |
 
 The Electron shell overrides the data location with Electron's `userData` folder, normally `%APPDATA%/clip-factory-desktop` on Windows. It keeps the desktop library separate from the browser/dev library.

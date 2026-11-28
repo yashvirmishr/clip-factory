@@ -32,6 +32,8 @@ def test_readiness_answers_in_one_probe(client):
     assert payload["machine"]["note"]
     assert isinstance(payload["video"]["ffmpeg"], bool)
     assert payload["speech"]["bin_dir"].endswith("bin")
+    assert payload["tools"]["bin_dir"] == payload["speech"]["bin_dir"]
+    assert isinstance(payload["tools"]["automatic"], bool)
     assert payload["scoring"]["built_in"] is True
     assert payload["scoring"]["runner"]["source"] in {"env", "config", "none"}
     assert payload["models"]["dir"]

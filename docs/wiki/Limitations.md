@@ -34,7 +34,7 @@ The hook is generated text, not a claim checked against the world. The grounding
 
 ## Language and models
 
-No speech or language model ships with the repository. Transcription needs a separate `whisper-cli` binary plus an ASR model downloaded from Models (pick a multilingual one for non-English sources); the VAD model is optional but recommended. Without them, transcription uses an API-supplied subtitle if one is provided; otherwise the deterministic stub runs, and that transcript is synthetic and must not be mistaken for real speech recognition.
+No speech or language model ships with the repository. Transcription needs a separate `whisper-cli` binary plus an ASR model downloaded from Models (pick a multilingual one for non-English sources); the VAD model is optional but recommended. **Programs** can install ffmpeg and whisper.cpp automatically on Windows x64 only; elsewhere both come from the machine. Without them, transcription uses an API-supplied subtitle if one is provided; otherwise the deterministic stub runs, and that transcript is synthetic and must not be mistaken for real speech recognition.
 
 The local LLM is optional and is not managed as a child process. You run `llama-server` yourself and point `CLIPPER_LLAMA_URL` at it. Without it, the heuristic scorer runs and is labelled as such. The app does not download, launch, supervise or restart the inference server.
 
@@ -112,8 +112,10 @@ The UI is desktop-first. Compact layouts collapse panels and remain usable on a 
 
 The Windows installer is unsigned, per-user and builds from source with
 `scripts/build-release.ps1`; there is no auto-updater or code signing. It bundles
-the Python runtime and the built UI, but not ffmpeg, whisper.cpp or any model, so
-those still come from the machine. Running from a checkout still needs a built
+the Python runtime and the built UI, but downloads ffmpeg, whisper.cpp and models
+on demand instead of bundling them, so the first run needs a connection. ffmpeg
+is GPLv3, whisper.cpp is MIT; the dialog names each license. Running from a
+checkout still needs a built
 `web/dist` and the repository virtualenv (falling back to `python` or
 `python3` on `PATH`).
 

@@ -21,6 +21,7 @@ import type {
   SourcePreview,
   SourceRow,
   Suggestion,
+  ToolsPayload,
   SuggestionPreview,
   WeeklyState,
   LanguageEntry,
@@ -301,6 +302,11 @@ export const api = {
   },
 
   models: () => request<ModelsPayload>('/models'),
+
+  tools: () => request<ToolsPayload>('/tools'),
+
+  installTool: (toolId: string) =>
+    request<JobState>(`/tools/${toolId}/install`, { method: 'POST' }),
 
   readiness: () => request<Readiness>('/readiness'),
 

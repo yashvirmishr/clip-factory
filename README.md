@@ -255,17 +255,22 @@ artifact carries no chat content. The format is a JSON list of
 `{"content_offset_seconds": …}`, which is also what TwitchDownloader emits, so a
 hand-made dump works too.
 
+### Getting the programs
+
+Cutting needs ffmpeg; real transcription needs whisper.cpp. Neither is bundled.
+**Hardware & models → Programs** installs the pinned Windows build of each in
+one click, verifies the publisher's SHA-256 before unpacking, and puts the
+executables in `<data>\bin`, which is first on `PATH`. A model with no program
+used to look exactly like "transcription is broken"; now the dialog names what
+is missing and offers the install. Automatic install is Windows-only — elsewhere
+put ffmpeg and `whisper-cli` in that folder or on `PATH`.
+
 ### Getting a model
 
 Open **Hardware & models → Models**. Every curated model is listed with its size,
 whether it fits the memory free *right now*, and whether it is already in use.
 Download is in-app, resumable, and leaves a SHA-256 beside the file so a truncated
 download is caught on the next run instead of at inference time.
-
-Transcription also needs a `whisper.cpp` binary, which is not shipped: drop
-`whisper-cli.exe` into `<data>\bin` or put it on `PATH`. The dialog tells you when
-that binary is missing rather than silently falling back to the stub — a model
-with no binary used to look exactly like "transcription is broken".
 
 ### Tests
 
@@ -620,8 +625,9 @@ Twitch chat fetch, or a publish/sync you start - all opt-in.
 2. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-3. **Packaging** — the Windows installer is unsigned and bundles no ffmpeg,
-   whisper.cpp or models, so those still come from the machine.
+3. **Packaging** — the Windows installer is unsigned and downloads ffmpeg,
+   whisper.cpp and models on demand rather than bundling them, so the first run
+   needs a connection.
 4. **Speaker-aware framing** — face tracking with mouth-activity scoring is in
    place, but it follows the most active face rather than a known speaker. True
    diarization (who is talking) is the next step; `CropPlan` is the interface it

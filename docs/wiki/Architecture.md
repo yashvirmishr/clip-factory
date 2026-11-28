@@ -25,9 +25,11 @@ Browser (localhost:5173)        Electron shell
 
 `python -m clipper` starts Uvicorn. It binds `127.0.0.1:8756` by default. `web/dist` is mounted at `/`; in development the browser loads Vite on port 5173 and proxies `/api` to the same API.
 
-The API creates a `JobManager` with two lanes. Every compute-heavy task - analysis, chat scoring, model activation or render - goes through one **compute** worker. Network-shaped work - URL downloads and publish uploads - goes through one **io** worker, so a long import cannot block a render (or the other way round). Jobs expose `queued`, `running`, `done` or `error`, a lane, per-stage timings, a stage label and a 0-1 progress value. Job state is in memory; a restart loses a queued or running job, not completed analyses.
+The API creates a `JobManager` with two lanes. Every compute-heavy task - analysis, chat scoring, model activation or render - goes through one **compute** worker. Network-shaped work - URL downloads, publish uploads and external-program installs - goes through one **io** worker, so a long import cannot block a render (or the other way round). Jobs expose `queued`, `running`, `done` or `error`, a lane, per-stage timings, a stage label and a 0-1 progress value. Job state is in memory; a restart loses a queued or running job, not completed analyses.
 
 One *compute* worker is a deliberate constraint. The pipeline and ffmpeg are already CPU- and memory-heavy on a laptop; two renders or a render beside a transcription would make timings and failures unpredictable. The second lane exists only because a download or upload spends its time waiting on the network, not on the CPU. The UI reports which lane a job is on.
+
+External programs need a home before any of that can run: `tools.py` pins one build of ffmpeg and whisper.cpp, verifies its SHA-256 and unpacks only the executables into `<data>/bin`, which `PATH` searches first. ffmpeg is GPLv3 and whisper.cpp is MIT, so neither is redistributed inside the installer.
 
 Two small background threads run beside that worker, because they wait rather than compute: the publish scheduler, which picks up due uploads after a backoff, and the weekly learning daemon, which syncs accounts and retrains when seven days have passed. Neither runs ffmpeg or competes for the analysis worker, and both can be turned off for development (see [Development](Development.md#environment-variables)).
 

@@ -13,7 +13,8 @@ fastest way to see the whole shape of the app.
 
 Three checks, and two usually already pass:
 
-- **Video tools** — ffmpeg. Without it nothing can be cut.
+- **Video tools** — ffmpeg. Without it nothing can be cut. Setup offers to
+  install it.
 - **Reading speech** — a speech model plus the small program that runs it.
   Skip it and clips are cut from a stand-in transcript: usable, but the words
   will not match.
@@ -48,7 +49,7 @@ taste. Nothing is deleted.
 
 - **No speech model:** clips still appear, from a stand-in transcript. Setup says
   so, and so does the inspector.
-- **No ffmpeg:** analysis can run, but cutting and rendering cannot. Install it,
-  then press **Check again**.
+- **No ffmpeg:** analysis can run, but cutting and rendering cannot. Use
+  **Install** in the Video tools row, then press **Check again**.
 - **Model runner unreachable:** scoring falls back to the built-in rules. The
   address box in **Help → This computer** tells you whether it can see a runner.

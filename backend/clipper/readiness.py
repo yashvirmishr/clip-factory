@@ -34,7 +34,9 @@ ENV_RUNNER = "CLIPPER_LLAMA_URL"
 
 def _bin_dir() -> Path:
     """Where whisper-cli is looked for: <data>/bin, beside <data>/models."""
-    return (models.models_dir() / ".." / "bin").resolve()
+    from .config import tools_dir
+
+    return tools_dir().resolve()
 
 
 def normalize_url(raw: str) -> str:
@@ -80,6 +82,12 @@ def save_runner(raw: str) -> dict:
     return runner_settings()
 
 
+def _tools_status() -> dict:
+    from . import tools
+
+    return tools.status()
+
+
 def _framing_status() -> dict:
     """Face tracking as a capability, with the same state the render will see."""
     from .pipeline import faces
@@ -122,6 +130,7 @@ def snapshot() -> dict:
             "ffmpeg": bool(profile.get("ffmpeg")),
             "disk_free_gb": profile.get("disk_free_gb", 0),
         },
+        "tools": _tools_status(),
         "speech": {
             # Both halves are needed: a model file and something to run it.
             "ready": bool(whisper_cli and (active_asr or installed_asr)),

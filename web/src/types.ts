@@ -353,6 +353,24 @@ export interface RunnerSettings extends RunnerProbe {
   editable: boolean
 }
 
+export interface ToolStatus {
+  id: string
+  label: string
+  version: string
+  size_mb: number
+  license: string
+  homepage: string
+  installed: boolean
+  path: string
+}
+
+export interface ToolsPayload {
+  bin_dir: string
+  automatic: boolean
+  platform: string
+  tools: ToolStatus[]
+}
+
 export interface Readiness {
   machine: {
     os: string
@@ -363,6 +381,7 @@ export interface Readiness {
     note: string
   }
   video: { ffmpeg: boolean; disk_free_gb: number }
+  tools: ToolsPayload
   speech: {
     ready: boolean
     model: string

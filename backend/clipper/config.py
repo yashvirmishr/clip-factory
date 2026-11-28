@@ -24,6 +24,35 @@ def app_data_dir() -> Path:
     return root / "ClipFactory"
 
 
+def tools_dir() -> Path:
+    """Where downloaded executables live: ``<data>/bin`` by default.
+
+    ``CLIPPER_TOOLS_DIR`` exists for tests and for a portable install. It is
+    read fresh each call so a temporary data directory takes effect.
+    """
+    override = (os.environ.get("CLIPPER_TOOLS_DIR") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    # SETTINGS does not exist yet while this module is still loading the
+    # config; fall back to the same default it will get.
+    settings = globals().get("SETTINGS")
+    return Path(settings.data_dir if settings else app_data_dir()) / "bin"
+
+
+def ensure_tools_on_path() -> None:
+    """Put ``tools_dir()`` first on PATH.
+
+    The pipeline resolves ``ffmpeg`` through PATH at call time, and whisper
+    through ``find_whisper_cli``. Keeping the two in one folder that is
+    already first means installing a program needs no restart and no
+    environment variable the user has to remember.
+    """
+    entry = str(tools_dir())
+    parts = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    if entry not in parts:
+        os.environ["PATH"] = os.pathsep.join([entry, *parts])
+
+
 @dataclass
 class AudioConfig:
     sample_rate: int = 16_000
@@ -269,3 +298,4 @@ def load_settings() -> Settings:
 
 
 SETTINGS = load_settings()
+ensure_tools_on_path()

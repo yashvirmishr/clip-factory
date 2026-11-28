@@ -37,6 +37,7 @@ The backend reads these from the process environment. Nothing else is configurab
 | `CLIPPER_DATA_DIR` | Library location: database, media, artifacts, renders |
 | `CLIPPER_LLAMA_URL` | Scoring runner address; when set, the Settings field is read-only and says why |
 | `CLIPPER_WHISPER_CLI` | Path to `whisper-cli` when it is not in `<data>/bin` or on `PATH` |
+| `CLIPPER_TOOLS_DIR` | Overrides `<data>/bin` as the folder installed programs go into and PATH searches first |
 | `CLIPPER_YTDLP_COOKIES` | `cookies.txt` for archives that refuse anonymous playback |
 | `CLIPPER_LOG_LEVEL` | Backend log level, `INFO` by default |
 | `CLIPPER_SECRET_BACKEND` | `keyring` (default) or `memory`; the latter keeps tokens in RAM for development |

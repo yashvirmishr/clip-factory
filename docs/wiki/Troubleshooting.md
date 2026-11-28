@@ -33,7 +33,7 @@ $env:PYTHONPATH = "backend"
 
 **Progress stops at a stage.** Read the job's `error` and `detail` fields. A failure inside the worker is reported there rather than as an HTTP error on the analyze request.
 
-**The transcript is synthetic or says stub.** No usable ASR backend was found. Install the `whisper-cli` binary on `PATH` or in `<data>/bin`, and download an ASR plus VAD model in Hardware & models. Without them the deterministic stub keeps the pipeline usable, but the transcript is not real.
+**The transcript is synthetic or says stub.** No usable ASR backend was found. In **Hardware & models → Programs**, install whisper.cpp (or put `whisper-cli` on `PATH` / in `<data>/bin`), then download an ASR plus VAD model in Models. Without them the deterministic stub keeps the pipeline usable, but the transcript is not real.
 
 **A model is downloaded but not used.** Downloading and activating are separate. Open Hardware & models and activate the model. A normal analyze returns the cached analysis; force rebuilds it. For a **scoring** change, force is enough. For an **ASR** change, `artifacts/<source-id>/transcript.json` is reused even on force: delete that file first, then force.
 
@@ -68,11 +68,11 @@ $env:PYTHONPATH = "backend"
 tour** (or the command palette, "Take the tour"). Progress resumes where you
 stopped; after the last step it starts from the top.
 
-**Setup says "needs a runner" for reading speech.** Two separate things are
-required: a speech model (downloaded in setup) and the `whisper-cli` program
-(one file, placed in the folder setup names). Setup has buttons to open that
-folder and to check again. Without either, clips are cut from a stand-in
-transcript and the app labels them that way.
+**Setup says it needs a speech program.** Two separate things are required: a
+speech model and the `whisper-cli` program. Setup installs the program on
+Windows and downloads the model; on other systems it names the folder for a
+manual build. Without either, clips are cut from a stand-in transcript and the
+app labels them that way.
 
 **I do not want to download a speech model.** Add a video that already has
 `.srt` or `.vtt` subtitles next to it. The import reads those words instead.

@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 COMPUTE = "compute"
 IO = "io"
 
-# Downloads and uploads are network/disk shaped and memory-light, so they get
-# their own lane. Everything else (and any unknown kind) stays serialised.
-_IO_KINDS = frozenset({"download", "publish", "proxy"})
+# Downloads, uploads and tool installs are network/disk shaped and
+# memory-light, so they get their own lane. Everything else (and any unknown
+# kind) stays serialised.
+_IO_KINDS = frozenset({"download", "publish", "proxy", "tool"})
 
 
 def lane_for(kind: str) -> str:
