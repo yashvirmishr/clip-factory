@@ -22,7 +22,7 @@ extraResources:
     to: LICENSE
 
 win:
-  icon: ../web/public/brand/clip-factory-icon.png
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

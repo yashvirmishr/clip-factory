@@ -206,6 +206,10 @@ function Main {
                 $shortcut.TargetPath = $launchCmd
                 $shortcut.WorkingDirectory = $repoRoot
                 $shortcut.Description = "Clip Factory"
+                $iconPath = Join-Path $repoRoot "desktop\build\icon.ico"
+                if (Test-Path -LiteralPath $iconPath) {
+                    $shortcut.IconLocation = "$iconPath,0"
+                }
                 $shortcut.Save()
                 Write-Ok "Shortcut created: $shortcutPath"
             }
