@@ -12,7 +12,7 @@ There is no global undo/redo across analysis, render, trim, hook or workspace ch
 
 ## One source, one reel at a time
 
-The analysis and export model is built around a source and its ranked reel. There is no project file, no multi-source sequence, no batch analysis across a library and no batch render queue. The single backend worker means one long task at a time by design.
+The analysis and export model is built around a source and its ranked reel. There is no project file, no multi-source sequence, no batch analysis across a library and no batch render queue. The single compute lane means one CPU-heavy task at a time by design; a separate I/O lane keeps downloads and uploads from blocking it.
 
 Sources cannot be removed through the UI or API. There is no relink flow: if a file moves, re-import it at the new path. Removing a source currently means using a fresh data directory.
 
@@ -50,7 +50,7 @@ Caption **words** are read-only in the UI. You can inspect pages, word counts an
 
 Caption **style** is editable per clip in the subtitle studio: font, size, colours, outline, bottom margin, case and word animation. Placement is bottom-centre only and alignment is not exposed. There is no arbitrary font upload or safe-area editor.
 
-Caption layout is fixed by configuration: at most four words per page, two lines, 22 columns per line, 19 CPS and a 0.35 s minimum page. The five presets change style, not layout. For scripts written without spaces (Han, kana, Thai) the same column budget applies, but width is measured in display columns: 22 columns is 11 Han glyphs per line, not 22, so a two-line page holds about 22 characters rather than 44.
+Caption layout is fixed by configuration: at most four words per page, two lines, 22 columns per line, 19 CPS and a 0.35 s minimum page. The twelve presets change style, not layout. For scripts written without spaces (Han, kana, Thai) the same column budget applies, but width is measured in display columns: 22 columns is 11 Han glyphs per line, not 22, so a two-line page holds about 22 characters rather than 44.
 
 Rendered caption fonts depend on fonts available to libass. The presets name common faces such as Arial Black; a machine without them gets a substitution. When the transcript's script has no glyphs in the preset family (for example Han with Arial Black), the style is swapped for an installed family for that script, such as Microsoft YaHei or Nirmala UI; a font you picked explicitly is left alone. The ASS file is correct even when the local font is not.
 
@@ -96,7 +96,7 @@ There is no live stream capture, no screen recording, no webcam capture and no a
 
 ## Workspace and themes
 
-Workspace layout and custom themes live in `localStorage`. They do not travel with an export, a data directory or another browser. Clearing site data removes them. There is no account, sync or server-side theme store.
+Workspace layout and custom themes live in `localStorage`. They do not travel with an export, a data directory or another browser. Clearing site data removes them. Themes are not tied to a connected account, and there is no server-side theme store.
 
 The Marketplace is a local library, not an online catalogue. Sharing is a JSON file or clipboard copy; there is no install link, rating, moderation or remote update.
 
@@ -119,7 +119,7 @@ those still come from the machine. Running from a checkout still needs a built
 
 The backend is single-user and unauthenticated. It binds to loopback by default and must not be exposed to a network. Two backend processes against one SQLite data directory will contend for the database.
 
-The SQLite schema has no migration framework. Upgrading code that changes a column or a required domain field may require a fresh data directory or a manual migration.
+The SQLite schema upgrades itself only for the columns it knows about: startup runs guarded `ALTER TABLE ... ADD COLUMN` statements and backfills the two analysis summary columns. There is no general migration versioning, so a change that rewrites or drops data still needs a fresh data directory or a manual migration.
 
 Analysis, renders, captions and thumbnails are stored on local disk without eviction. There is no storage quota, cleanup policy or project archive.
 

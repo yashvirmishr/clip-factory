@@ -26,6 +26,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | [Architecture](Architecture.md) | How the frontend, API and pipeline fit together |
 | [API Reference](API-Reference.md) | HTTP endpoints, jobs and data shapes |
 | [Development](Development.md) | Tests, builds and where to change things |
+| [Performance baseline](../perf-baseline.md) | Measured analysis, render and bundle numbers, and how to reproduce them |
 | [Troubleshooting](Troubleshooting.md) | Common failures and what to check |
 | [Limitations](Limitations.md) | Deliberate boundaries and current gaps |
 
@@ -48,16 +49,16 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | Analysis | whisper.cpp or imported subtitles, sentence-bounded windows, scene-cut snapping, deterministic gates, optional LLM shortlist scoring |
 | Review | Ranked reel, filters, search, grid/list views, scorecard, signals, gates, hook editing, trim controls |
 | Monitor | Source preview, caption overlay, hook overlay, 9:16 guides, loop, frame and second stepping |
-| Finish | Five caption presets, three framing strategies, optional face tracking, libass burn-in, -14 LUFS mix, 1080 × 1920 MP4 |
+| Finish | Twelve caption presets with per-clip overrides, three framing strategies, optional face tracking, libass burn-in, -14 LUFS mix, 1080 × 1920 MP4 |
 | Handoff | Zip bundle, OTIO, FCP7 XML, FCP X XML, EDL, SRT/VTT; bake to MP4s; media referenced by absolute path |
 | Publish | Direct YouTube or X upload from a rendered MP4, durable retry queue, bring-your-own OAuth client |
 | Learning | Local decision log and taste re-ranker, connected-account engagement analytics, gated weekly personal model, evidence-based coach suggestions |
 | Interface | Library / Clips / Publish areas, one header per area, resizable floating inspector, command palette, context menus, six built-in themes |
-
 | Distribution | One-command Windows setup from a checkout; unsigned per-user NSIS installer that bundles Python and the built UI |
+
 ## Local by default
 
-Clip Factory binds the API to `127.0.0.1`, stores its database and artifacts in a local data directory, and has no account system, telemetry or cloud dependency. The page requests its default UI typefaces from Google Fonts; offline, it falls back to system fonts. Other network access happens when you import a URL, fetch Twitch chat, download a model, or apply a custom theme that declares a remote font stylesheet.
+Clip Factory binds the API to `127.0.0.1`, stores its database and artifacts in a local data directory, and has no telemetry or hosted account. Connected accounts are optional OAuth clients you configure yourself; tokens live in the OS credential store, not in the database. The page requests its default UI typefaces from Google Fonts; offline, it falls back to system fonts. Other network access happens when you import a URL, fetch Twitch chat, download a model, publish or sync a post you started, or apply a custom theme that declares a remote font stylesheet.
 
 The desktop shell and the browser UI both talk to the same local API. The backend is a sidecar, not a hosted service.
 

@@ -10,7 +10,7 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 - Errors use FastAPI's `{"detail": "..."}` envelope with a 4xx or 5xx status.
 - Long operations return a job immediately. Follow it with `GET /api/jobs/{id}/events` (server-sent events, one frame per change, closed after the last) or poll `GET /api/jobs/{id}`. Both routes build their payload from one function, so they cannot disagree.
 - A completed job exposes its result as `analysis`, regardless of whether it was an analysis, a download or a render.
-- There is one worker. A second long request queues.
+- There are two lanes. A second compute-heavy request (analysis, render) queues behind the first; downloads and uploads use the separate I/O lane and do not block it.
 
 ### Job shape
 

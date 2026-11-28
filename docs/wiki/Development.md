@@ -67,7 +67,7 @@ npm test
 npm run build
 ```
 
-`npm test` runs Vitest over `api.test.ts` and the theme colour maths, the two places where a regression is invisible in a screenshot. Everything else is still a manual pass over the states you touched. The backend suite uses FastAPI's test client and temporary media fixtures; it does not need the dev server.
+`npm test` runs Vitest over the API client, the theme colour maths, the playhead store and the tour state machine - the places where a regression is invisible in a screenshot. Everything else is still a manual pass over the states you touched. The backend suite uses FastAPI's test client and temporary media fixtures; it does not need the dev server.
 
 User-facing copy has its own check, and CI runs it:
 
@@ -89,13 +89,13 @@ Useful focused runs:
 Performance and pick quality have their own harnesses:
 
 ```powershell
-./.venv/Scripts/python.exe scripts/perf.py
-./.venv/Scripts/python.exe scripts/perf.py path/to/video.mp4
+./.venv/Scripts/python.exe scripts/perf.py --stub   # the shipped demo baseline
+./.venv/Scripts/python.exe scripts/perf.py path/to/video.mp4  # real ASR on your media
 ./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json
 ./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold --limit 5 --json
 ```
 
-`perf.py` reports measured time and peak RSS per stage; it does not estimate. `goldset.py` re-runs analysis with `force` so a cached analysis cannot flatter a change. The transcript artifact is still reused; delete it when the change affects ASR.
+`perf.py` reports measured time and peak RSS per stage; it does not estimate. The generated demo contains tones, not speech, so real ASR correctly finds nothing there - `--stub` is the comparable pipeline baseline and the shorthand that produced [the performance baseline](../perf-baseline.md). `goldset.py` re-runs analysis with `force` so a cached analysis cannot flatter a change. A forced run still reuses the transcript artifact, which is keyed by language, model, engine, mode and subtitle file; delete the matching file (or bump the key) when the change affects ASR itself.
 
 ## Where to change what
 
@@ -164,7 +164,7 @@ Remember that a done job's result is exposed as `analysis`, even for downloads a
 
 ## Data and schema
 
-`backend/clipper/db.py` creates the SQLite schema with `CREATE TABLE IF NOT EXISTS`. There is no migration framework. A column change needs either an explicit migration in `init()` or a fresh data directory; silently changing the `CREATE` statement leaves existing databases on the old shape.
+`backend/clipper/db.py` creates the SQLite schema with `CREATE TABLE IF NOT EXISTS`, then runs guarded `ALTER TABLE ... ADD COLUMN` statements in `init()` so an older database gains the columns added since it was created. Add a guarded `ALTER` alongside the `CREATE` change when adding a column; changing only the `CREATE` statement leaves existing databases on the old shape. There is no general migration versioning, so a change that rewrites or drops existing data still needs an explicit one-off step (or a fresh data directory).
 
 Analyses are stored as a serialized JSON payload. If you change a domain model, old payloads must still validate, or you must provide a migration. The safe default is an optional field with a default, not a required one.
 

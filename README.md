@@ -513,32 +513,42 @@ The limitation is written in the module rather than papered over.
 
 ## Efficiency
 
-The design rule is `peak = max(ASR, LLM)` and never `ASR + LLM`. One job worker
-runs one heavy stage at a time. Audio is streamed in 60 s blocks, frames never
-enter Python, the waveform is pre-rendered peaks, and the LLM budget goes to a
-pre-deduplicated shortlist rather than every window.
+The design rule is `peak = max(ASR, LLM)` and never `ASR + LLM`. One **compute**
+worker runs one heavy stage at a time; downloads and uploads use a separate
+**I/O** lane, so a long import does not block analysis or rendering. Audio is
+streamed in 60 s blocks, frames never enter Python, the waveform is pre-rendered
+peaks, and the LLM budget goes to a pre-deduplicated shortlist rather than every
+window.
 
 ### Measured cost
 
-`scripts/perf.py`, 2-minute source, stub ASR, this machine:
+`scripts/perf.py --stub`, 180 s demo source, this machine:
 
 | Stage | Seconds | Peak MB |
 |---|---|---|
-| baseline (imported, idle) | — | 55 |
-| audio | 0.93 | 64 |
-| transcribe + align + windows | 0.05 | 59 |
-| signals + gates | 0.06 | 58 |
-| score (stub) | 0.03 | 58 |
-| select | 0.03 | 59 |
-| **total** | **1.06** | **64** |
+| baseline (imported, idle) | - | 53 |
+| audio | 0.15 | 82 |
+| transcribe (stub) | 0.01 | 58 |
+| align | 0.02 | 56 |
+| windows | 0.56 | 57 |
+| signals | 0.11 | 57 |
+| gates | 0.12 | 58 |
+| score (stub) | 0.07 | 58 |
+| select | 0.08 | 60 |
+| **total** | **1.12** | **82** |
+
+A 30 s clip rendered in 5.83 s with `h264_amf` (framing 0.67 s, encode 5.15 s)
+on the same machine. The full report, including how to reproduce it and what is
+not measured, is in [the performance baseline](docs/perf-baseline.md).
 
 Real ASR adds a separate `whisper-cli` process (roughly +0.5 GB for
 `small.en`, +1.5 GB for `medium.en`); a 3B scorer adds ~2.0 GB in
 `llama-server`. Those are separate processes precisely so the OS can reclaim
 them the moment a stage ends.
 
-Frontend: 78 KB gzipped JS, 4.5 KB CSS, no animation library, no utility
-framework, no audio decoding in the renderer.
+Frontend: about 121 KB gzipped JS for the shell and 29 KB CSS, plus panels that
+load on first use. No animation library, no utility framework, no audio decoding
+in the renderer.
 
 ---
 
@@ -546,7 +556,9 @@ framework, no audio decoding in the renderer.
 
 ```
 web/                      React + TS, hand-authored CSS (no Tailwind)
-  src/components/         Sidebar, Waveform, ClipCard, Inspector, SetupModal
+  src/components/         LibraryArea, Reel, Monitor, Timeline, Inspector, PublishArea
+  src/tour/               the seven-step first-run tour and setup cards
+  src/workspace/          shell primitives, playhead store, view persistence
 desktop/                  Electron shell: spawns + health-checks + tree-kills the sidecar
 backend/clipper/
   api.py                  FastAPI; also serves web/dist in production
@@ -593,9 +605,10 @@ backend/clipper/
 scripts/perf.py           measured resource report
 ```
 
-The sidecar binds `127.0.0.1` only. There is no account layer, no telemetry and
-no cloud path; the only network calls are the optional model download, URL
-imports and the Twitch chat fetch you ask for, all opt-in.
+The sidecar binds `127.0.0.1` only. There is no telemetry and no hosted service.
+Connected accounts are optional OAuth clients you configure; tokens live in the
+OS credential store. The only network calls are a model download, URL import,
+Twitch chat fetch, or a publish/sync you start - all opt-in.
 
 ---
 

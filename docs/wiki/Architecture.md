@@ -13,7 +13,8 @@ Browser (localhost:5173)        Electron shell
      |               |                |
   SQLite          JobManager        Static web/dist
      |               |
-  analyses       one worker
+  analyses       compute lane
+                 io lane
   decisions          |
   edits          pipeline / render / publish
                      |
@@ -24,9 +25,9 @@ Browser (localhost:5173)        Electron shell
 
 `python -m clipper` starts Uvicorn. It binds `127.0.0.1:8756` by default. `web/dist` is mounted at `/`; in development the browser loads Vite on port 5173 and proxies `/api` to the same API.
 
-The API creates a `JobManager` with a single worker thread. Every long task — analysis, URL download, chat fetch, model download or render — goes through that queue. Jobs expose `queued`, `running`, `done` or `error`, a stage label and a 0–1 progress value. Job state is in memory; a restart loses a queued or running job, not completed analyses.
+The API creates a `JobManager` with two lanes. Every compute-heavy task - analysis, chat scoring, model activation or render - goes through one **compute** worker. Network-shaped work - URL downloads and publish uploads - goes through one **io** worker, so a long import cannot block a render (or the other way round). Jobs expose `queued`, `running`, `done` or `error`, a lane, per-stage timings, a stage label and a 0-1 progress value. Job state is in memory; a restart loses a queued or running job, not completed analyses.
 
-One worker is a deliberate constraint. The pipeline and ffmpeg are already CPU- and memory-heavy on a laptop; two renders or a render beside a transcription would make timings and failures unpredictable. The UI enforces the same reality by reporting that the backend is busy.
+One *compute* worker is a deliberate constraint. The pipeline and ffmpeg are already CPU- and memory-heavy on a laptop; two renders or a render beside a transcription would make timings and failures unpredictable. The second lane exists only because a download or upload spends its time waiting on the network, not on the CPU. The UI reports which lane a job is on.
 
 Two small background threads run beside that worker, because they wait rather than compute: the publish scheduler, which picks up due uploads after a backoff, and the weekly learning daemon, which syncs accounts and retrains when seven days have passed. Neither runs ffmpeg or competes for the analysis worker, and both can be turned off for development (see [Development](Development.md#environment-variables)).
 
@@ -63,7 +64,7 @@ The LLM adapter talks to a local `llama-server` over HTTP and requests a constra
 
 Rendering is a separate job and a separate module tree:
 
-- `render/ass.py` owns the five caption styles and ASS generation, including karaoke timing and script-aware fonts.
+- `render/ass.py` owns the caption presets, per-clip overrides and ASS generation, including karaoke timing and script-aware fonts. `resolve_style` is the single path used by the renderer, the studio preview and the ASS download, so they cannot disagree.
 - `render/ffmpeg.py` builds the filter graph and encoder arguments.
 - `render/__init__.py` resolves framing, groups caption pages, computes a cache key and runs ffmpeg.
 - `lang.py` detects the transcript's script, joins tokens without spaces where the script requires it, measures display width and picks a font family per script.

@@ -10,6 +10,7 @@ pytest-of-*/
 .pytest-data*/
 .testdata/
 .acl-recovery/
+.tmp-run/
 data-empty/
 
 # Node

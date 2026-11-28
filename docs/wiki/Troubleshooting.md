@@ -93,7 +93,7 @@ clips stay in the list until you reject or trim them; nothing is deleted.
 
 **A render finishes but has no captions.** Check the clip's caption page count and the selected preset. Captions are burned from generated pages; a clip with no words has nothing to burn. Re-run analysis, or supply `subtitle_path` through the API after clearing the transcript artifact (the UI has no subtitle picker).
 
-**The render is slow.** One worker, H.264 encoding and a full source decode are the cost. Hardware encoding is used when the build exposes working NVENC or AMF, but the app retries with `libx264` if the hardware path fails. A retry is slower, not stuck.
+**The render is slow.** The compute lane runs one heavy task at a time, and H.264 encoding plus a full source decode are the cost. Hardware encoding is used when the build exposes working NVENC or AMF, but the app retries with `libx264` if the hardware path fails. A retry is slower, not stuck.
 
 **The render looks identical after a change.** The MP4 is cached by clip, preset, framing and caption-page digest. Changing the trim, preset, framing or caption pages produces a different key; if the panel still shows an old result, press **Render again** to force it. A hook edit alone does not invalidate the cache because the hook is not burned into the picture.
 

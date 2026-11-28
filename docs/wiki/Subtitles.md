@@ -20,7 +20,7 @@ With no clip selected, the same buttons download a zip with one file per clip in
 
 ## What the render burns
 
-Five presets ship: Hormozi, Box, Karaoke, Minimal and Landscape. Each fixes a font, a size, colours, an outline, margins and whether words are uppercased. Karaoke presets highlight each word as it is spoken.
+Twelve presets ship: Hormozi, Box, Karaoke, Minimal, Landscape, Bold centre, Serif, Outline only, Neon, Ticker, Podcast and Comic. Each fixes a font, a size, colours, an outline, margins and whether words are uppercased. Karaoke presets highlight each word as it is spoken.
 
 Colours, fonts and margins come from the theme and the preset, not from the caption text, so changing theme does not change the subtitle file.
 
@@ -34,7 +34,7 @@ The **Captions** tab opens the subtitle studio. Pick a preset, then change what 
 - **Words animate**: instant pop, sweep, or static text.
 - **UPPER**, for presets that do not uppercase already.
 
-The preview is drawn from the same numbers the renderer uses, so a size that looks wrong there is wrong in the MP4. **Save style** stores only what you changed — the rest keeps following the preset, and **Reset** goes back to it. The preset you pick is remembered between the studio and the render panel, so the two cannot disagree.
+The preview is drawn from the same numbers the renderer uses, so a size that looks wrong there is wrong in the MP4. **Save style** stores the clip's preset plus only what you changed - the rest keeps following the preset. **Apply to all** copies that preset and those changes to every ranked clip, and **Reset** returns this clip to the shipped preset. The clip's saved preset wins in the studio, the render panel and the ASS download, so the three cannot disagree about the same clip.
 
 Saved changes follow the clip into the render, the downloadable ASS, and the bundle's caption files.
 
