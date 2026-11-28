@@ -1764,9 +1764,19 @@ def create_publish(request: PublishCreateRequest) -> dict:
     from dataclasses import asdict
     from datetime import datetime, timezone
 
+    now = time.time()
+    scheduled = float(request.scheduled_at or 0.0)
+    if scheduled and scheduled < now - 60:
+        raise HTTPException(status_code=400, detail="Pick a publish time in the future.")
+    native_schedule = bool(publish_limits.capabilities_for(request.platform).get("native_schedule"))
+    # YouTube keeps the upload and lets the platform hold it until publish_at.
+    # Every other platform has to hold the row itself, so the scheduler picks it
+    # up once next_attempt_at is due.
+    defer_until = scheduled if scheduled > now and not native_schedule else 0.0
+
     scheduled_iso = ""
-    if request.scheduled_at:
-        scheduled_iso = datetime.fromtimestamp(request.scheduled_at, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    if scheduled:
+        scheduled_iso = datetime.fromtimestamp(scheduled, tz=timezone.utc).isoformat().replace("+00:00", "Z")
     metadata = {
         "title": request.title,
         "description": request.caption,
@@ -1801,10 +1811,13 @@ def create_publish(request: PublishCreateRequest) -> dict:
             source_id=request.source_id,
             clip_id=request.clip_id,
             idempotency_key=request.idempotency_key,
+            scheduled_at=scheduled,
+            not_before=defer_until,
         )
     except (ValueError, OSError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    _submit_publish(job["id"])
+    if float(job.get("next_attempt_at") or 0.0) <= time.time():
+        _submit_publish(job["id"])
     return job
 
 

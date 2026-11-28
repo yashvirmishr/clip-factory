@@ -544,6 +544,7 @@ export const api = {
     made_for_kids: boolean
     source_id: string
     clip_id: string
+    scheduled_at?: number
   }) => request<Record<string, unknown>>('/publish', { method: 'POST', body: JSON.stringify(body) }),
 
   retryPublish: (jobId: string) =>

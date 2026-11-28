@@ -23,6 +23,7 @@ interface Platform {
   aspect: string
   connected: number
   adapter: boolean
+  native_schedule?: boolean
 }
 
 export interface RenderedClip {
@@ -58,6 +59,12 @@ const JOB_TONE: Record<string, string> = {
   cancelled: '',
 }
 
+function localInput(ms: number): string {
+  const date = new Date(ms)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function splitTags(value: string): string[] {
   return value
     .split(/[\s,]+/)
@@ -87,6 +94,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
   const [hashtags, setHashtags] = useState('')
   const [visibility, setVisibility] = useState('private')
   const [madeForKids, setMadeForKids] = useState(false)
+  const [scheduleAt, setScheduleAt] = useState('')
   const [issues, setIssues] = useState<Array<{ code: string; message: string }>>([])
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -171,14 +179,26 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
     setChecked(false)
   }, [platform])
 
-  // Only an upload in flight is worth re-reading; keyed on that flag so the
-  // timer is not torn down and recreated on every result.
-  const uploading = jobs.some((job) => job.status === 'queued' || job.status === 'running')
+  // Only an upload in flight is worth re-reading; a job scheduled for later
+  // gets one timer for its due time instead of a poll every few seconds.
+  const uploading = jobs.some(
+    (job) =>
+      (job.status === 'queued' || job.status === 'retry' || job.status === 'running') &&
+      Number(job.scheduled_at ?? 0) <= Date.now() / 1000 + 1,
+  )
+  const nextScheduled = jobs.reduce((soonest, job) => {
+    const when = Number(job.scheduled_at ?? 0)
+    if ((job.status !== 'queued' && job.status !== 'retry') || when <= Date.now() / 1000) return soonest
+    return Math.min(soonest, when)
+  }, Number.POSITIVE_INFINITY)
   useEffect(() => {
-    if (!uploading) return
-    const timer = window.setInterval(() => void loadJobs(), 2500)
-    return () => window.clearInterval(timer)
-  }, [uploading, loadJobs])
+    if (!uploading && !Number.isFinite(nextScheduled)) return
+    const delay = uploading
+      ? 2500
+      : Math.max(1000, Math.min((nextScheduled - Date.now() / 1000) * 1000 + 3000, 3_600_000))
+    const timer = window.setTimeout(() => void loadJobs(), delay)
+    return () => window.clearTimeout(timer)
+  }, [uploading, nextScheduled, loadJobs])
 
   const connect = async () => {
     if (!clientId.trim()) {
@@ -237,6 +257,11 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
 
   const publish = async () => {
     if (!account || !mediaPath) return
+    const when = scheduleAt ? Math.floor(new Date(scheduleAt).getTime() / 1000) : 0
+    if (scheduleAt && (!Number.isFinite(when) || when <= Date.now() / 1000)) {
+      setError('Pick a publish time in the future.')
+      return
+    }
     setBusy(true)
     setError(null)
     setIssues([])
@@ -252,8 +277,17 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
         made_for_kids: madeForKids,
         source_id: sourceId,
         clip_id: clip.id,
+        scheduled_at: when || undefined,
       })
-      notifyRef.current('ok', 'Queued for upload. Progress is below.')
+      notifyRef.current(
+        'ok',
+        when && !limits?.native_schedule
+          ? 'Scheduled. It uploads at that time while the app is running.'
+          : when
+            ? 'Scheduled with the platform. Progress is below.'
+            : 'Queued for upload. Progress is below.',
+      )
+      setScheduleAt('')
       void loadJobs()
     } catch (failure) {
       const message = (failure as Error).message
@@ -463,6 +497,23 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               ) : null}
             </div>
 
+            <Field label="Schedule (optional)">
+              <input
+                type="datetime-local"
+                aria-label="Scheduled publish time"
+                value={scheduleAt}
+                min={localInput(Date.now() + 60_000)}
+                onChange={(event) => setScheduleAt(event.target.value)}
+              />
+            </Field>
+            {scheduleAt ? (
+              <p className="field-hint">
+                {limits?.native_schedule
+                  ? 'The platform holds the upload until this time; it goes up even if the app is closed.'
+                  : 'The app keeps this queued and uploads only while it is running.'}
+              </p>
+            ) : null}
+
             {issues.length ? (
               <ul className="publish-issues">
                 {issues.map((issue) => (
@@ -478,7 +529,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               disabled={busy || !secretReady || !mediaPath || !(isYouTube ? title : caption).trim()}
             >
               {busy ? <Spinner label="" /> : <Icon name="upload" size={14} />}
-              Queue upload to {platformLabel}
+              {scheduleAt ? `Schedule for ${platformLabel}` : `Queue upload to ${platformLabel}`}
             </button>
             <p className="field-hint">
               {mediaPath
@@ -517,8 +568,8 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                       <button type="button" className="chip" onClick={() => void retry(String(job.id))}>
                         Retry
                       </button>
-                    ) : job.url ? (
-                      <a href={String(job.url)} target="_blank" rel="noreferrer">
+                    ) : job.post_url ? (
+                      <a href={String(job.post_url)} target="_blank" rel="noreferrer">
                         Open
                       </a>
                     ) : (

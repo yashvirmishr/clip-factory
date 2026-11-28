@@ -80,6 +80,28 @@ def test_claim_next_marks_running_and_increments_attempts(clean_db, tmp_path):
     assert queue.claim_next() is None
 
 
+def test_scheduled_enqueue_waits_for_its_time(clean_db, tmp_path):
+    account = connect()
+    when = time.time() + 600
+    job = queue.enqueue(
+        platform="youtube",
+        account_id=account.id,
+        media_path=file(tmp_path),
+        metadata={"title": "Later", "description": "desc", "tags": [], "media": {
+            "duration": 30, "width": 1080, "height": 1920,
+            "size_bytes": 5, "has_audio": True, "format": "mp4",
+        }},
+        scheduled_at=when,
+        not_before=when,
+    )
+    assert job["scheduled_at"] == pytest.approx(when, abs=1)
+    assert job["next_attempt_at"] == pytest.approx(when, abs=1)
+    assert queue.claim_next() is None
+    assert queue.next_pending() is None
+    assert queue.next_pending(now=when + 1)["id"] == job["id"]
+    assert queue.claim_next(now=when + 1)["id"] == job["id"]
+
+
 def test_claim_by_id_is_atomic_and_respects_backoff(clean_db, tmp_path):
     account = connect()
     job = enqueue(tmp_path, account)

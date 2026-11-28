@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS publish_jobs (
     progress REAL NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 3,
+    scheduled_at REAL NOT NULL DEFAULT 0,
     next_attempt_at REAL NOT NULL DEFAULT 0,
     platform_post_id TEXT NOT NULL DEFAULT '',
     post_url TEXT NOT NULL DEFAULT '',
@@ -301,6 +302,12 @@ def init(db_path: Path | None = None) -> None:
         try:
             conn.execute("ALTER TABLE analyses ADD COLUMN reel_quality REAL NOT NULL DEFAULT 0")
             added_summary = True
+        except sqlite3.OperationalError:
+            pass
+        # Scheduled uploads remember the time the user chose. Older rows upload
+        # as soon as they are due, which is what an empty value means.
+        try:
+            conn.execute("ALTER TABLE publish_jobs ADD COLUMN scheduled_at REAL NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
             pass
         if added_summary:

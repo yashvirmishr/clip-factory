@@ -19,6 +19,7 @@ interface PublishJob {
   max_attempts: number
   post_url: string
   error: string
+  scheduled_at: number
   created_at: number
   updated_at: number
 }
@@ -36,6 +37,19 @@ const PLATFORM_LABEL: Record<string, string> = {
   tiktok: 'TikTok',
   instagram: 'Instagram',
   x: 'X',
+}
+
+function until(seconds: number): string {
+  const delta = (seconds * 1000 - Date.now()) / 1000
+  if (delta < 60) return 'in under a minute'
+  if (delta < 3600) return `in ${Math.round(delta / 60)} min`
+  if (delta < 86400) return `in ${Math.round(delta / 3600)} h`
+  return new Date(seconds * 1000).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 function when(seconds: number): string {
@@ -162,7 +176,11 @@ export function PublishArea({ analysis, learn, onRefreshLearn, onNotify, onOpenC
                   <span role="cell">{PLATFORM_LABEL[job.platform] ?? job.platform}</span>
                   <span role="cell">
                     <span className="publish-state" data-status={job.status}>
-                      {job.status === 'running' && job.stage ? `${job.status} · ${job.stage}` : job.status}
+                      {job.status === 'queued' && job.scheduled_at > Date.now() / 1000
+                        ? `scheduled · ${until(job.scheduled_at)}`
+                        : job.status === 'running' && job.stage
+                          ? `${job.status} · ${job.stage}`
+                          : job.status}
                     </span>
                     {job.error ? <span className="publish-error" title={job.error}>{job.error}</span> : null}
                   </span>

@@ -1,5 +1,6 @@
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from clipper import accounts, analytics, api
@@ -101,6 +102,50 @@ def test_publish_create_accepts_x_and_stores_a_job(clean_db, monkeypatch, tmp_pa
         assert job["metadata"]["feature_coverage"] == "none"
         listed = client.get("/api/publish/jobs")
         assert listed.json()["jobs"][0]["id"] == job["id"]
+
+
+def test_scheduled_publish_waits_for_its_time(clean_db, monkeypatch, tmp_path):
+    account = connect("x")
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"not really a video")
+    submitted = []
+    monkeypatch.setattr(api, "_submit_publish", lambda job_id: submitted.append(job_id))
+    when = time.time() + 3600
+    with TestClient(api.app) as client:
+        response = client.post("/api/publish", json={
+            "platform": "x",
+            "account_id": account.id,
+            "media_path": str(media),
+            "media": {"duration": 30, "width": 1080, "height": 1920, "size_bytes": 18, "has_audio": True, "format": "mp4"},
+            "caption": "Later clip",
+            "visibility": "public",
+            "scheduled_at": when,
+        })
+        assert response.status_code == 200, response.text
+        job = response.json()
+        assert submitted == []
+        assert job["scheduled_at"] == pytest.approx(when, abs=1)
+        assert job["next_attempt_at"] == pytest.approx(when, abs=1)
+        assert api.publish_queue.next_pending() is None
+        assert api.publish_queue.next_pending(now=when + 1)["id"] == job["id"]
+
+
+def test_publish_rejects_a_time_in_the_past(clean_db, tmp_path):
+    account = connect("x")
+    media = tmp_path / "clip.mp4"
+    media.write_bytes(b"x")
+    with TestClient(api.app) as client:
+        response = client.post("/api/publish", json={
+            "platform": "x",
+            "account_id": account.id,
+            "media_path": str(media),
+            "media": {"duration": 30, "width": 1080, "height": 1920, "size_bytes": 1, "has_audio": True, "format": "mp4"},
+            "caption": "Too late",
+            "visibility": "public",
+            "scheduled_at": time.time() - 3600,
+        })
+        assert response.status_code == 400
+        assert "future" in response.json()["detail"].lower()
 
 
 def test_publish_snapshots_the_clip_features_for_the_personal_model(clean_db, monkeypatch, tmp_path):

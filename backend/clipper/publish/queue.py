@@ -51,6 +51,7 @@ def _row_to_job(row) -> dict:
         "progress": row["progress"],
         "attempts": row["attempts"],
         "max_attempts": row["max_attempts"],
+        "scheduled_at": row["scheduled_at"],
         "next_attempt_at": row["next_attempt_at"],
         "platform_post_id": row["platform_post_id"],
         "post_url": row["post_url"],
@@ -74,6 +75,8 @@ def enqueue(
     batch_id: str = "",
     max_attempts: int = 3,
     job_id: str = "",
+    scheduled_at: float = 0.0,
+    not_before: float = 0.0,
 ) -> dict:
     account = accounts.get_account(account_id)
     if account is None:
@@ -98,13 +101,14 @@ def enqueue(
             INSERT INTO publish_jobs
                 (id, batch_id, platform, account_id, source_id, clip_id, media_path,
                  metadata, idempotency_key, status, stage, progress, attempts,
-                 max_attempts, next_attempt_at, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 max_attempts, scheduled_at, next_attempt_at, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 job_id, batch_id, platform, account_id, source_id, clip_id, str(path.resolve()),
                 json.dumps(metadata), idempotency_key, "queued", "", 0.0, 0,
-                max(1, int(max_attempts)), 0.0, now, now,
+                max(1, int(max_attempts)), max(0.0, float(scheduled_at)),
+                max(0.0, float(not_before)), now, now,
             ),
         )
         row = conn.execute("SELECT * FROM publish_jobs WHERE id=?", (job_id,)).fetchone()

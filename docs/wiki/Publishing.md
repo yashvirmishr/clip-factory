@@ -43,8 +43,11 @@ The client secret and token bundle are stored in the credential store, not in SQ
 | **Hashtags** | Space- or comma-separated, `#` optional. YouTube keeps 15; X keeps 10. X is public only. |
 | **Visibility** | YouTube: private, unlisted or public. X: public. Private is the YouTube default on purpose. |
 | **Audience** | YouTube requires a made-for-kids declaration on every upload; the toggle is that declaration. |
+| **Schedule** | Optional date and time. YouTube holds the private upload and publishes it natively; X stays queued locally until that time. Leave it empty to upload now. |
 
-**Check against YouTube limits** (the button names the platform) validates the draft against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does.
+**Check against YouTube limits** (the button names the platform) validates the draft against the same rules the upload enforces — duration, size, aspect, caption and title length, hashtag count. It never uploads. **Queue upload** does, or **Schedule for YouTube** when a time is set.
+
+Scheduling behaves differently by platform because the platforms do. YouTube accepts `publishAt` on a private video, so the upload happens now and YouTube releases it at the chosen time. X has no native scheduling, so the job stays in the local queue with `scheduled_at` set and uploads when the time arrives — which means the app must be running then. A time in the past is rejected rather than treated as "now".
 
 YouTube Shorts are capped at three minutes and must be vertical or square. X accepts a longer file at the API level, but this app caps the draft at 140 seconds so it stays a short. The server, not the browser, is the authority; the UI shows the returned issues.
 
@@ -53,6 +56,7 @@ YouTube Shorts are capped at three minutes and must be vertical or square. X acc
 Uploads are durable jobs in SQLite, so closing the panel does not cancel one. Recent uploads show their state:
 
 - **queued** — waiting for the single background worker;
+- **scheduled** — queued with a future upload time; the queue shows how long until it runs;
 - **running** — uploading;
 - **done** — a link to the post, when the platform returned one;
 - **failed** — the reason, with **Retry**;
@@ -69,7 +73,7 @@ A finished upload records the feature vector, signals and judge score the clip c
 ## What is not here
 
 - **No TikTok or Instagram upload.** Their OAuth entries exist, but `POST /api/publish` refuses them with a clear message. Use the Output tab's **Handoff** section for now.
-- **No scheduling calendar.** A `scheduled_at` field exists and YouTube `publishAt` is passed through, but the UI does not expose a date picker.
+- **No scheduling calendar.** Each publish form takes one time; there is no week view, no recurring slot and no bulk rescheduling.
 - **No multi-platform posting in one action.** One draft, one account, one upload.
 - **No title/hook generation for the platform.** Editing the draft text is manual; the hook and title come from the analysis.
 - **No hosted callback.** Each user brings a developer app. That keeps tokens on the machine and keeps the project free of a credential relay.
