@@ -54,11 +54,13 @@ Base URL: `http://127.0.0.1:8756/api` in development and with `scripts/run.cmd`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/sources` | List sources with `analyzed`, `clip_count` and `reel_quality` |
+| GET | `/api/sources` | List sources with `analyzed`, `clip_count`, `reel_quality`, `available` and `deletable` |
 | POST | `/api/sources` | Register a local path synchronously |
 | POST | `/api/sources/url` | Download an HTTP(S) VOD as a job |
 | POST | `/api/demo` | Generate and register the demo stream |
 | GET | `/api/sources/{id}` | One source |
+| DELETE | `/api/sources/{id}?delete_file=false` | Forget a source; delete its media only when asked |
+| POST | `/api/sources/{id}/relink` | Point a source at its moved file, keeping its analysis |
 | GET | `/api/media/{id}` | Stream the source file |
 | GET | `/api/sources/{id}/chat` | Chat coverage and origin |
 | POST | `/api/sources/{id}/chat/fetch` | Fetch Twitch chat replay as a job |
@@ -100,6 +102,26 @@ curl -X POST http://127.0.0.1:8756/api/sources/url \
 ```
 
 Returns a job. Requires `yt-dlp`; otherwise 409 with an install hint. Playlists are refused by the fetcher.
+
+`available` says whether the listed path was a file when the list was read; `deletable` is true only for a present file inside the app's `media/` folder.
+
+### Remove a source
+
+```bash
+curl -X DELETE "http://127.0.0.1:8756/api/sources/<source-id>?delete_file=true"
+```
+
+Removes the source row, its stored analysis, clip edits and suggestions, and its artifact folder. `delete_file` only has an effect on a file inside the app's `media/` folder; a file imported from elsewhere is always left on disk. The response reports `file_deleted` and any `warnings` (for example, the file was outside the media folder or a lock prevented deletion). Decisions and published posts are kept as history.
+
+### Relink a moved file
+
+```bash
+curl -X POST http://127.0.0.1:8756/api/sources/<source-id>/relink \
+  -H "Content-Type: application/json" \
+  -d '{"path": "D:/Videos/stream.mp4"}'
+```
+
+The file must exist and its duration must be within 2 seconds or 1% of the stored duration, so captions cannot silently drift. A 404 means the path is missing; a 400 means it is a different recording. The source keeps its analysis and returns an updated `SourceInfo`.
 
 ### Analyze
 

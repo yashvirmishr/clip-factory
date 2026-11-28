@@ -21,6 +21,7 @@ import { Monitor, type MonitorHandle, type OverlayMode } from './components/Moni
 import { PublishArea } from './components/PublishArea'
 import { Reel, REJECT_REASONS, type ClipFilter, type ClipSort, type ClipView } from './components/Reel'
 import { Timeline } from './components/Timeline'
+import { RelinkDialog, RemoveDialog } from './components/SourceDialogs'
 import { UrlSheet, type UrlChoice } from './components/UrlSheet'
 import { CommandPalette } from './workspace/CommandPalette'
 import { ContextMenu } from './workspace/ContextMenu'
@@ -206,6 +207,13 @@ export default function App() {
   const theme = useTheme()
 
   const [sources, setSources] = useState<SourceRow[]>([])
+  const [removeTarget, setRemoveTarget] = useState<SourceRow | null>(null)
+  const [relinkTarget, setRelinkTarget] = useState<SourceRow | null>(null)
+  // Whether the library was empty on the first load. The first-run tour keys
+  // off this rather than the current count, so deleting the last source does
+  // not reopen onboarding.
+  const [startedEmpty, setStartedEmpty] = useState<boolean | null>(null)
+  const firstSourceLoad = useRef(true)
   // Reopen the source from the last session; the effect below falls back to the
   // first analyzed source when that file is gone. (Clips re-seed from its rank list.)
   const [selectedSourceId, setSelectedSourceId] = usePersistentState<string | null>(
@@ -282,7 +290,12 @@ export default function App() {
 
   const refreshSources = useCallback(async () => {
     try {
-      setSources(await api.sources())
+      const rows = await api.sources()
+      setSources(rows)
+      if (firstSourceLoad.current) {
+        firstSourceLoad.current = false
+        setStartedEmpty(rows.length === 0)
+      }
     } catch (error) {
       pushToast('error', `Could not list sources: ${(error as Error).message}`)
     }
@@ -335,6 +348,42 @@ export default function App() {
       }
     },
     [setLayout],
+  )
+
+  const forgetSource = useCallback(
+    async (source: SourceRow, fileDeleted: boolean, warnings: string[]) => {
+      setRemoveTarget(null)
+      if (source.id === selectedSourceId) {
+        hydratedSourceRef.current = null
+        setSelectedSourceId(null)
+        setAnalysis(null)
+        setPeaks(null)
+        setSelectedClipId(null)
+        setVerdicts({})
+        setPlayhead(0)
+        setChat(null)
+        setCaptions(null)
+        setJob(null)
+      }
+      await refreshSources()
+      pushToast(
+        'ok',
+        fileDeleted
+          ? `Removed “${source.name}” and deleted its file.`
+          : `Removed “${source.name}”.`,
+      )
+      for (const warning of warnings) pushToast('info', warning)
+    },
+    [pushToast, refreshSources, selectedSourceId, setSelectedSourceId],
+  )
+
+  const confirmRelink = useCallback(
+    async (updated: SourceInfo) => {
+      setRelinkTarget(null)
+      await refreshSources()
+      pushToast('ok', `“${updated.name}” points at its file again.`)
+    },
+    [pushToast, refreshSources],
   )
 
   useEffect(() => {
@@ -807,11 +856,11 @@ export default function App() {
 
   // A brand-new install with no sources gets the tour by itself, once.
   useEffect(() => {
-    if (tour.state.status !== 'unseen') return
-    if (engine !== 'online' || sources.length > 0 || setupOpen) return
+    if (tour.state.status !== 'unseen' || startedEmpty !== true) return
+    if (engine !== 'online' || setupOpen) return
     const timer = window.setTimeout(() => tour.start(), 900)
     return () => window.clearTimeout(timer)
-  }, [tour.state.status, engine, sources.length, setupOpen, tour.start])
+  }, [tour.state.status, engine, setupOpen, startedEmpty, tour.start])
 
   const onTourAction = useCallback(
     (action: TourActionId) => {
@@ -1164,6 +1213,20 @@ export default function App() {
           label: 'Open preview in browser',
           group: 'Source',
           run: () => window.open(api.mediaUrl(source.id), '_blank', 'noopener,noreferrer'),
+        },
+        null,
+        {
+          id: 'ctx.source.relink',
+          label: 'Relink file…',
+          group: 'Source',
+          run: () => setRelinkTarget(source),
+        },
+        {
+          id: 'ctx.source.remove',
+          label: 'Remove from library…',
+          group: 'Source',
+          danger: true,
+          run: () => setRemoveTarget(source),
         },
       ]
       setContextMenu({ x: position.x, y: position.y, label: `${source.name} actions`, items })
@@ -1561,6 +1624,8 @@ export default function App() {
             onAnalyze={() => void runAnalyze(Boolean(analysis))}
             onOpenClips={() => goArea('clips')}
             onSourceMenu={openSourceMenu}
+            onRelinkSource={setRelinkTarget}
+            onRemoveSource={setRemoveTarget}
             onOpenSetup={() => void openSetup()}
           />
         ) : null}
@@ -1803,6 +1868,24 @@ export default function App() {
           onBack={tour.back}
           onClose={tour.close}
           onAction={onTourAction}
+        />
+      ) : null}
+
+      {removeTarget ? (
+        <RemoveDialog
+          source={removeTarget}
+          onClose={() => setRemoveTarget(null)}
+          onRemoved={(fileDeleted, warnings) =>
+            void forgetSource(removeTarget, fileDeleted, warnings)
+          }
+        />
+      ) : null}
+
+      {relinkTarget ? (
+        <RelinkDialog
+          source={relinkTarget}
+          onClose={() => setRelinkTarget(null)}
+          onRelinked={(updated) => void confirmRelink(updated)}
         />
       ) : null}
 

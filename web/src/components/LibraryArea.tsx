@@ -17,6 +17,8 @@ export interface LibraryAreaProps {
   onAnalyze: () => void
   onOpenClips: () => void
   onSourceMenu: (source: SourceRow, position: { x: number; y: number }) => void
+  onRelinkSource: (source: SourceRow) => void
+  onRemoveSource: (source: SourceRow) => void
   onOpenSetup: () => void
 }
 
@@ -26,7 +28,7 @@ function formatFps(fps: number): string {
 }
 
 function LibraryThumb({ source }: { source: SourceRow }): JSX.Element {
-  const [broken, setBroken] = useState(false)
+  const [broken, setBroken] = useState(!source.available)
   return (
     <span className="library-thumb" aria-hidden="true">
       {broken ? <Icon name="film" size={16} /> : null}
@@ -64,6 +66,8 @@ export function LibraryArea({
   onAnalyze,
   onOpenClips,
   onSourceMenu,
+  onRelinkSource,
+  onRemoveSource,
   onOpenSetup,
 }: LibraryAreaProps): JSX.Element {
   const [query, setQuery] = useState('')
@@ -238,6 +242,9 @@ export function LibraryArea({
                         <span className="library-row-text">
                           <span className="library-row-name" title={source.name}>
                             {source.name}
+                            {!source.available ? (
+                              <span className="library-row-missing">Missing</span>
+                            ) : null}
                           </span>
                           <span className="library-row-meta">
                             <span className="num">{formatTime(source.duration)}</span>
@@ -283,14 +290,43 @@ export function LibraryArea({
             </div>
           ) : (
             <>
-              <div className="library-player">
-                <video
-                  key={selected.id}
-                  controls
-                  muted
-                  preload="metadata"
-                  src={api.mediaUrl(selected.id)}
-                />
+              <div className={selected.available ? 'library-player' : 'library-player library-player-missing'}>
+                {selected.available ? (
+                  <video
+                    key={`${selected.id}:${selected.path}`}
+                    controls
+                    muted
+                    preload="metadata"
+                    src={api.mediaUrl(selected.id)}
+                  />
+                ) : (
+                  <div className="library-missing">
+                    <Icon name="alert" size={18} />
+                    <p className="library-missing-title">This file is not where it was</p>
+                    <p className="library-missing-copy">
+                      It may have been moved or renamed. Relink it to keep its analysis and
+                      clips, or remove it from the library.
+                    </p>
+                    <div className="library-missing-actions">
+                      <button
+                        type="button"
+                        className="library-btn primary"
+                        onClick={() => onRelinkSource(selected)}
+                      >
+                        <Icon name="search" size={13} />
+                        Relink file
+                      </button>
+                      <button
+                        type="button"
+                        className="library-btn ghost"
+                        onClick={() => onRemoveSource(selected)}
+                      >
+                        <Icon name="trash" size={13} />
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="library-detail-head">
@@ -303,7 +339,13 @@ export function LibraryArea({
               </div>
 
               <div className="library-actions">
-                <button type="button" className="library-btn primary" disabled={busy} onClick={onAnalyze}>
+                <button
+                  type="button"
+                  className="library-btn primary"
+                  disabled={busy || !selected.available}
+                  title={selected.available ? undefined : 'Relink the file first'}
+                  onClick={onAnalyze}
+                >
                   <Icon name="activity" size={13} />
                   {selected.analyzed ? 'Re-analyze' : 'Analyze'}
                 </button>

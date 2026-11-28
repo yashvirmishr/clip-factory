@@ -220,6 +220,18 @@ export const api = {
 
   sources: () => request<SourceRow[]>('/sources'),
 
+  deleteSource: (sourceId: string, deleteFile = false) =>
+    request<{ id: string; deleted: boolean; file_deleted: boolean; warnings: string[] }>(
+      `/sources/${sourceId}?delete_file=${deleteFile}`,
+      { method: 'DELETE' },
+    ),
+
+  relinkSource: (sourceId: string, path: string) =>
+    request<SourceInfo>(`/sources/${sourceId}/relink`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+
   ingest: (path: string, name?: string) =>
     request<SourceInfo>('/sources', {
       method: 'POST',

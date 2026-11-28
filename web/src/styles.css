@@ -593,6 +593,16 @@ button:focus:not(:focus-visible),a:focus:not(:focus-visible) {
   background:color-mix(in srgb, var(--ink) 5.88%, transparent);
   color:var(--ink)
 }
+.btn.danger {
+  border-color:var(--danger-line);
+  background:var(--danger);
+  color:#fffdf6;
+  font-weight:600
+}
+.btn.danger:hover:not(:disabled) {
+  border-color:var(--danger);
+  background:color-mix(in srgb, var(--danger) 84%, #000);
+}
 .btn.block {
   width:100%
 }

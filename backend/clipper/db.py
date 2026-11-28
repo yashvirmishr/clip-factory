@@ -504,6 +504,31 @@ def _apply_clip_edits(analysis: AnalysisResult) -> None:
                 candidate.caption_style = dict(payload)
 
 
+def delete_source(source_id: str) -> bool:
+    """Forget a source and everything derived from its analysis.
+
+    Decisions and published posts are deliberately kept: they are learning
+    history and a record of what went out, and neither needs the media file.
+    """
+    with connect() as conn:
+        cursor = conn.execute("DELETE FROM sources WHERE id=?", (source_id,))
+        conn.execute("DELETE FROM analyses WHERE source_id=?", (source_id,))
+        conn.execute("DELETE FROM clip_edits WHERE source_id=?", (source_id,))
+        conn.execute("DELETE FROM suggestions WHERE source_id=?", (source_id,))
+    _ANALYSIS_CACHE.pop(source_id, None)
+    return cursor.rowcount > 0
+
+
+def update_source_path(source_id: str, path: str, size_bytes: int) -> bool:
+    """Point an existing source at its file's new location."""
+    with connect() as conn:
+        cursor = conn.execute(
+            "UPDATE sources SET path=?, size_bytes=? WHERE id=?",
+            (path, size_bytes, source_id),
+        )
+    return cursor.rowcount > 0
+
+
 def list_sources_with_stats() -> list[dict]:
     """The source rail: one query, no payload parsing."""
     with connect() as conn:
@@ -525,12 +550,16 @@ def list_sources_with_stats() -> list[dict]:
             has_audio=bool(r["has_audio"]), size_bytes=r["size_bytes"],
             origin_url=r["origin_url"] if "origin_url" in r.keys() else "",
         )
+        path = Path(info.path)
+        inside_media = path.resolve().is_relative_to(SETTINGS.media_dir().resolve())
         out.append(
             {
                 **info.model_dump(),
                 "analyzed": r["analyzed_id"] is not None,
                 "clip_count": int(r["clip_count"] or 0),
                 "reel_quality": float(r["reel_quality"] or 0.0),
+                "available": path.is_file(),
+                "deletable": inside_media and path.is_file(),
             }
         )
     return out

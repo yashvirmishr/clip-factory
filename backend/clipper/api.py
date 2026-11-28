@@ -64,6 +64,10 @@ class IngestRequest(BaseModel):
     prefer_captions: bool = False
 
 
+class RelinkRequest(BaseModel):
+    path: str
+
+
 class PreviewRequest(BaseModel):
     url: str
 
@@ -427,6 +431,30 @@ def get_source(source_id: str) -> dict:
     if source is None:
         raise HTTPException(status_code=404, detail="source not found")
     return source.model_dump()
+
+
+@app.delete("/api/sources/{source_id}")
+def remove_source(source_id: str, delete_file: bool = False) -> dict:
+    """Forget a source. Managed media is deleted only when asked for."""
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    return service.forget(source, delete_file=delete_file)
+
+
+@app.post("/api/sources/{source_id}/relink")
+def relink_source(source_id: str, request: RelinkRequest) -> dict:
+    """Point a source at a moved file, keeping its analysis and clips."""
+    source = db.get_source(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source not found")
+    try:
+        updated = service.relink(source, request.path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, MediaError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return updated.model_dump()
 
 
 @app.get("/api/sources/{source_id}/chat")

@@ -14,7 +14,7 @@ There is no global undo/redo across analysis, render, trim, hook or workspace ch
 
 The analysis and export model is built around a source and its ranked reel. There is no project file, no multi-source sequence, no batch analysis across a library and no batch render queue. The single compute lane means one CPU-heavy task at a time by design; a separate I/O lane keeps downloads and uploads from blocking it.
 
-Sources cannot be removed through the UI or API. There is no relink flow: if a file moves, re-import it at the new path. Removing a source currently means using a fresh data directory.
+Sources can be removed and relinked one at a time. Removal deletes only files under `media/` (URL downloads); an imported file is always left on disk. There is no multi-select cleanup, no batch relink and no background scan for missing files.
 
 Cancellation is cooperative: the analysis bar, a render and a bake each have a cancel control, but a native step already running (one ffmpeg pass, one whisper call) finishes before the job stops. A cancelled bake keeps the clips it already finished. The queue is in memory, so restarting the backend loses queued work (completed files remain).
 

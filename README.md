@@ -19,6 +19,10 @@ uploads, accounts and performance. Each area owns one header, so the source
 picker, the analyze action and the Clips / Monitor / Timeline switch live with
 the reel instead of in a second toolbar across the app.
 
+The Library manages sources in place: **Relink** follows a moved file without
+re-analyzing it, and **Remove** deletes a media file only when the app downloaded
+it into its own folder, never an original you imported.
+
 The workspace ships with six themes and a Studio for making your own. Every panel,
 hairline and monitor tone comes from nine seeds; see [theme authoring](docs/theme-authoring.md)
 for the file format and a starter theme. The full manual starts at the

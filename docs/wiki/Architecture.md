@@ -147,6 +147,8 @@ The Timeline draws to a canvas and reads its colours from the compiled theme tok
 
 SQLite is the index, not the media store. Source media stays where it is; downloaded URL sources land in `media/`; analysis sidecars and renders live in their own directories. The database path is `<data>/clipper.sqlite3`.
 
+Removing a source deletes its row plus its stored analysis, clip edits and suggestions; decisions and posts survive as history and do not read the media file. Relinking updates the stored path and size only, because the analysis is keyed to the same recording.
+
 ## Trust boundary
 
 - The server binds to loopback by default. `--host` can change that, but there is no authentication, so exposing it to a network is not supported.

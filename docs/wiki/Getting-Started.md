@@ -144,6 +144,8 @@ If Electron exits with `app is undefined`, unset `ELECTRON_RUN_AS_NODE` for that
 6. Open **Output** in the Inspector, pick a caption preset and framing mode, then choose **Render clip**.
 7. Download the MP4, bake the whole reel, or use **Handoff** to export a bundle with OTIO, FCP7 XML, FCP X XML or EDL.
 
+If a source file is moved or renamed, the Library marks it **Missing**. **Source actions → Relink file…** points it at the new location and keeps the analysis, picks and edits. **Source actions → Remove from library…** forgets a source; only files inside `media/` can be deleted with it, and renders plus published posts stay.
+
 If no ASR model or whisper binary is installed, transcription falls back to an API-supplied subtitle file or the deterministic stub. Subtitle import currently has no control in the interface; it is the `subtitle_path` field on `POST /api/sources/{id}/analyze`. If no local LLM server is running, scoring falls back to the labelled `heuristic-stub`. The full workflow still runs and each clip records which backend produced it. Install models when you want real transcription and model judging; see [Hardware and models](#hardware-and-models).
 
 ## Hardware and models

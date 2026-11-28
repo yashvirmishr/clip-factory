@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable
@@ -104,6 +105,66 @@ def ingest(
             origin_url=origin,
         )
     )
+
+
+def forget(source: SourceInfo, delete_file: bool = False) -> dict:
+    """Remove a source from the library, optionally deleting managed media.
+
+    Only files inside the app media folder are ever deleted. A source the user
+    imported from their own drive is always left alone, because the app cannot
+    know whether another project still needs it.
+    """
+    warnings: list[str] = []
+    file_deleted = False
+    resolved = Path(source.path).resolve()
+    if delete_file:
+        media_root = SETTINGS.media_dir().resolve()
+        if not resolved.is_relative_to(media_root):
+            warnings.append(
+                "The media file is outside the app's media folder, so it was left in place."
+            )
+        elif not resolved.is_file():
+            warnings.append("The media file was already gone.")
+        else:
+            try:
+                resolved.unlink()
+                file_deleted = True
+            except OSError as exc:
+                warnings.append(f"The media file could not be deleted: {exc}")
+
+    # Thumbnails, the proxy, chat and subtitles all live under this folder.
+    folder = SETTINGS.artifacts_dir() / source.id
+    if folder.exists():
+        try:
+            shutil.rmtree(folder)
+        except OSError as exc:
+            warnings.append(f"Some preview files could not be removed: {exc}")
+
+    db.delete_source(source.id)
+    return {
+        "id": source.id,
+        "deleted": True,
+        "file_deleted": file_deleted,
+        "warnings": warnings,
+    }
+
+
+def relink(source: SourceInfo, path: str | Path) -> SourceInfo:
+    """Point a source at a moved copy without throwing its analysis away."""
+    target = Path(path).expanduser()
+    if not target.is_file():
+        raise FileNotFoundError(f"not found: {target}")
+    info = probe(target)
+    if source.duration > 0:
+        tolerance = max(2.0, source.duration * 0.01)
+        if abs(info["duration"] - source.duration) > tolerance:
+            raise ValueError(
+                f"That file is {info['duration']:.1f} s long; this source was "
+                f"analysed as {source.duration:.1f} s. Relink the original file, "
+                "or add the new one as its own source."
+            )
+    db.update_source_path(source.id, str(target.resolve()), info["size_bytes"])
+    return db.get_source(source.id) or source
 
 
 CHAT_FILE = "chat.json"

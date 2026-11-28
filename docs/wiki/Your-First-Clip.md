@@ -45,6 +45,17 @@ taste. Nothing is deleted.
 **Render** writes a vertical MP4 with burned-in captions next to your project.
 **Export bundle** is for taking the edit into another editor.
 
+## Moving or removing a source
+
+If the file moves or is renamed, its row gets a **Missing** badge. Press
+**Relink file** and paste the new path; the analysis, picks and edits follow.
+A file of a different length is refused, so captions cannot drift.
+
+**Source actions → Remove from library…** forgets the source and its analysis.
+If the file came from a VOD download and lives in the app's media folder, the
+dialog also offers to delete it. Files you imported from your own drive are
+always left alone. Renders and published posts survive either way.
+
 ## If something is wrong
 
 - **No speech model:** clips still appear, from a stand-in transcript. Setup says

@@ -96,6 +96,10 @@ export interface SourceRow extends SourceInfo {
   analyzed: boolean
   clip_count: number
   reel_quality: number
+  /** The media file was found on disk when the list was read. */
+  available: boolean
+  /** The file is inside the app media folder, so removing it can delete it. */
+  deletable: boolean
 }
 
 export interface Analysis {
