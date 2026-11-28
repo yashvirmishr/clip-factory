@@ -38,14 +38,15 @@ npm run build
 
 `pytest` includes a few real encodes and takes a minute; `-m "not slow"` skips
 them for a fast pass. `npm run build` is also the TypeScript typecheck.
-`scripts/copy-lint.py` checks user-facing copy, and CI runs all four gates.
+`scripts/copy-lint.py` checks user-facing copy. CI runs all four, plus the demo
+gold set.
 
 For a performance or pick-quality change, also run:
 
 ```powershell
 $env:PYTHONPATH = "backend"
 ./.venv/Scripts/python.exe scripts/perf.py --stub
-./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json
+./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json --stub --demo --min-f1 0.75
 ```
 
 The current numbers are in [docs/perf-baseline.md](docs/perf-baseline.md). A

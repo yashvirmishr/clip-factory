@@ -3,6 +3,10 @@
     ./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json
     ./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold --limit 5 --json
 
+The shipped demo's audio is tones, so a real model correctly finds nothing.
+``--stub`` scores it on the deterministic transcript the labels were written
+against; ``--min-f1`` turns the result into a gate instead of a report.
+
 A gold file is JSON:
 
     {"source": "stream.mp4",
@@ -27,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
 os.environ.setdefault("CLIPPER_DATA_DIR", str(Path.cwd() / "data"))
 
-from clipper import bench, db, service  # noqa: E402
+from clipper import bench, db, demo, service  # noqa: E402
 from clipper.config import SETTINGS  # noqa: E402
 
 
@@ -55,7 +59,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--threshold", type=float, default=bench.DEFAULT_THRESHOLD)
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument("--quiet", action="store_true", help="only the totals")
+    parser.add_argument(
+        "--stub",
+        action="store_true",
+        help="force the deterministic stub transcript (use for the shipped demo)",
+    )
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="generate the shipped demo when the source is missing",
+    )
+    parser.add_argument(
+        "--min-f1",
+        type=float,
+        default=None,
+        help="exit 1 when mean F1 is below this value",
+    )
     args = parser.parse_args(argv)
+
+    if args.stub:
+        # The demo's audio is a tone, not speech. Real ASR returns no words and
+        # the run stops before scoring, which measures nothing.
+        from clipper.pipeline.asr import WhisperCppASR
+
+        WhisperCppASR.available = lambda self: False  # type: ignore[method-assign]
+
+    if args.demo and not args.video:
+        args.video = str(demo.generate(SETTINGS.media_dir()))
 
     db.init()
     target = Path(args.gold)
@@ -115,7 +145,15 @@ def main(argv: list[str] | None = None) -> int:
     errors = [row for row in rows if "error" in row]
     for row in errors:
         print(f"error: {row['fixture']}: {row['error']}", file=sys.stderr)
-    return 1 if errors else 0
+    if errors:
+        return 1
+    if args.min_f1 is not None and totals.get("mean_f1", 0.0) < args.min_f1:
+        print(
+            f"error: mean F1 {totals.get('mean_f1', 0.0):.2f} is below --min-f1 {args.min_f1:.2f}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

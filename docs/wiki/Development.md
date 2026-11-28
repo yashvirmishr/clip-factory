@@ -91,11 +91,11 @@ Performance and pick quality have their own harnesses:
 ```powershell
 ./.venv/Scripts/python.exe scripts/perf.py --stub   # the shipped demo baseline
 ./.venv/Scripts/python.exe scripts/perf.py path/to/video.mp4  # real ASR on your media
-./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json
+./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold/demo-stream.json --stub --demo --min-f1 0.75
 ./.venv/Scripts/python.exe scripts/goldset.py benchmarks/gold --limit 5 --json
 ```
 
-`perf.py` reports measured time and peak RSS per stage; it does not estimate. The generated demo contains tones, not speech, so real ASR correctly finds nothing there - `--stub` is the comparable pipeline baseline and the shorthand that produced [the performance baseline](../perf-baseline.md). `goldset.py` re-runs analysis with `force` so a cached analysis cannot flatter a change. A forced run still reuses the transcript artifact, which is keyed by language, model, engine, mode and subtitle file; delete the matching file (or bump the key) when the change affects ASR itself.
+`perf.py` reports measured time and peak RSS per stage; it does not estimate. The generated demo contains tones, not speech, so real ASR correctly finds nothing there - `--stub` is the comparable pipeline baseline and the shorthand that produced [the performance baseline](../perf-baseline.md). The same applies to the demo gold set: CI runs it with `--stub --demo` and fails below `--min-f1 0.75`, so a picker change cannot quietly cost a labelled moment. `goldset.py` re-runs analysis with `force` so a cached analysis cannot flatter a change. A forced run still reuses the transcript artifact, which is keyed by language, model, engine, mode and subtitle file; delete the matching file (or bump the key) when the change affects ASR itself.
 
 ## Where to change what
 

@@ -76,7 +76,7 @@ Stop and resume any time; progress is saved. The tour is also under
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
 | Editor handoff: OTIO, FCP7 XML, FCP X XML, CMX 3600 EDL, SRT/VTT, bake-to-MP4s, zip bundle | working |
 | Publishing: YouTube/X upload with your own OAuth client, durable queue, retry, cancel | working |
-| Gold-set pick-quality harness + CI regression gate | working |
+| Gold-set pick-quality harness + CI regression gate (shipped demo) | working |
 | MIT license | working (see [LICENSE](LICENSE)) |
 | Code signing, bundled ffmpeg/whisper, auto-update, real-VOD gold sets | **not yet built** |
 
