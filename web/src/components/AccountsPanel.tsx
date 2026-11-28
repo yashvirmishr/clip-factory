@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, callbackUrl } from '../api'
 import type { AccountPost, PersonalState, WeeklyState } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Field, Spinner, TextField } from '../workspace/ui'
@@ -39,7 +39,6 @@ const SETUP: Record<string, { name: string; hint: string; docs: string }> = {
   },
 }
 
-const REDIRECT = 'http://127.0.0.1:8756/api/connections/callback'
 
 function labelFor(platform: string): string {
   return SETUP[platform]?.name ?? platform
@@ -273,7 +272,7 @@ export function AccountsPanel({ onNotify }: Props) {
             </Field>
             <Field label="Callback">
               <div className="copy-row">
-                <code className="bake-path">{REDIRECT}</code>
+                <code className="bake-path">{callbackUrl()}</code>
                 <button
                   type="button"
                   className="icon-btn icon-btn-sm"
@@ -281,7 +280,7 @@ export function AccountsPanel({ onNotify }: Props) {
                   title="Copy callback URL"
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(REDIRECT)
+                      await navigator.clipboard.writeText(callbackUrl())
                       notifyRef.current('ok', 'Callback URL copied.')
                     } catch {
                       notifyRef.current('error', 'Could not copy the callback; select it manually.')

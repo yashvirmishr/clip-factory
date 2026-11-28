@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, callbackUrl } from '../api'
 import type { Clip } from '../types'
 import { Icon } from '../workspace/Icon'
 import { Field, Spinner, TextField } from '../workspace/ui'
@@ -39,8 +39,6 @@ interface Props {
   rendered: RenderedClip | null
   onNotify: (kind: 'ok' | 'error' | 'info', message: string) => void
 }
-
-const REDIRECT_HINT = 'http://127.0.0.1:8756/api/connections/callback'
 
 const VISIBILITY = [
   { value: 'private', label: 'Private' },
@@ -435,7 +433,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
               )}
               {' '}
               <span className="copy-row">
-                <code className="bake-path">{REDIRECT_HINT}</code>
+                <code className="bake-path">{callbackUrl()}</code>
                 <button
                   type="button"
                   className="icon-btn icon-btn-sm"
@@ -443,7 +441,7 @@ export function PublishPanel({ sourceId, clip, rendered, onNotify }: Props) {
                   title="Copy callback URL"
                   onClick={async () => {
                     try {
-                      await navigator.clipboard.writeText(REDIRECT_HINT)
+                      await navigator.clipboard.writeText(callbackUrl())
                       notifyRef.current('ok', 'Callback URL copied.')
                     } catch {
                       notifyRef.current('error', 'Could not copy the callback; select it manually.')

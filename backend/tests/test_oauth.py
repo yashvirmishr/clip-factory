@@ -42,6 +42,15 @@ def test_start_builds_a_pkce_authorization_url_without_storing_tokens():
     assert start.manual_callback is False
 
 
+def test_callback_url_follows_the_origin_serving_the_app():
+    assert oauth.callback_url("http://127.0.0.1:8756/") == (
+        "http://127.0.0.1:8756/api/connections/callback"
+    )
+    assert oauth.callback_url("http://127.0.0.1:5173") == (
+        "http://127.0.0.1:5173/api/connections/callback"
+    )
+
+
 def test_complete_exchanges_a_code_and_consumes_state():
     start = oauth.start("youtube", "client-123", "secret-456")
     fake = FakeClient({

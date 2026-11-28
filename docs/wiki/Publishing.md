@@ -10,17 +10,19 @@ Publishing sends a finished clip to **YouTube** or **X** from inside Clip Factor
 
 ## YouTube
 
-In Google Cloud, create an OAuth client of type **Web application** and add this exact redirect URI:
+In Google Cloud, create an OAuth client of type **Web application** and add the redirect URI the app shows under **Publish → Accounts**. It follows the origin that serves the page; the desktop shell and `scripts\run.cmd` use:
 
 ```text
 http://127.0.0.1:8756/api/connections/callback
 ```
 
+The desktop shell keeps port 8756 so that registration stays valid between launches. Set `CLIP_FACTORY_PORT` to start it elsewhere, then register the URI the Accounts tab shows for that port.
+
 Enable **YouTube Data API v3** and **YouTube Analytics API** on the project. The app asks for `youtube.upload`, `youtube.readonly` and `yt-analytics.readonly`.
 
 ## X
 
-In the X developer portal, create an OAuth 2.0 **confidential** client and add the same callback URI:
+In the X developer portal, create an OAuth 2.0 **confidential** client and add the same callback URI shown in the Accounts tab:
 
 ```text
 http://127.0.0.1:8756/api/connections/callback

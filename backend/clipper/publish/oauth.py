@@ -19,7 +19,21 @@ from urllib.parse import urlencode
 import httpx
 
 META_VERSION = "v23.0"
-DEFAULT_REDIRECT = "http://127.0.0.1:8756/api/connections/callback"
+CALLBACK_PATH = "/api/connections/callback"
+
+
+def callback_url(base_url: str) -> str:
+    """The loopback callback for the origin serving the app.
+
+    The desktop shell owns the port and the browser dev server proxies the
+    callback, so the redirect follows the request instead of a constant. A
+    provider registration must match exactly, which is why the Accounts tab
+    shows this same URL.
+    """
+    return base_url.rstrip("/") + CALLBACK_PATH
+
+
+DEFAULT_REDIRECT = callback_url("http://127.0.0.1:8756")
 PENDING_TTL_S = 600.0
 
 

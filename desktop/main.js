@@ -90,14 +90,24 @@ ipcMain.handle('clip-factory:open-path', async (_event, target) => {
   }
 })
 
-function freePort() {
-  return new Promise((resolve, reject) => {
+const DEFAULT_PORT = 8756
+
+// The OAuth callback is registered once, against a fixed loopback URL, so the
+// sidecar cannot move to a random port on every launch. CLIP_FACTORY_PORT
+// exists for a machine where 8756 is taken; whatever it is, the Accounts tab
+// shows the same URI the provider must be configured with.
+function preferredPort() {
+  const raw = Number(process.env.CLIP_FACTORY_PORT || '')
+  return Number.isInteger(raw) && raw > 0 && raw < 65536 ? raw : DEFAULT_PORT
+}
+
+function portIsFree(port) {
+  return new Promise((resolve) => {
     const server = net.createServer()
     server.unref()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      server.close(() => resolve(port))
+    server.once('error', () => resolve(false))
+    server.listen(port, '127.0.0.1', () => {
+      server.close(() => resolve(true))
     })
   })
 }
@@ -166,7 +176,13 @@ async function waitForHealth(url, child, timeoutMs = 90000) {
 }
 
 async function startSidecar() {
-  const port = await freePort()
+  const port = preferredPort()
+  if (!(await portIsFree(port))) {
+    throw new Error(
+      `Port ${port} is already in use, and the publishing callback is tied to it.` +
+        ` Close the app using that port, or start Clip Factory with CLIP_FACTORY_PORT set to a free one.`,
+    )
+  }
   const url = `http://127.0.0.1:${port}`
   const python = pythonExecutable()
 
@@ -288,10 +304,10 @@ if (!gotLock) {
         const url = await startSidecar()
         createWindow(url)
       } catch (error) {
-        dialog.showErrorBox(
-          'Clip Factory could not start',
-          `${error.message}\n\nCheck that .venv exists at the project root and that ffmpeg is on PATH.`,
-        )
+        const hint = /^Port \d+/.test(error.message)
+          ? ''
+          : '\n\nCheck that .venv exists at the project root and that ffmpeg is on PATH.'
+        dialog.showErrorBox('Clip Factory could not start', `${error.message}${hint}`)
         killSidecar()
         app.quit()
       }

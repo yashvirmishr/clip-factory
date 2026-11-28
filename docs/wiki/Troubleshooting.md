@@ -4,6 +4,8 @@ Start with the failing surface, not the whole stack. The UI usually names the st
 
 ## The page will not load
 
+**Port 8756 is already in use.** The desktop shell keeps that port because the OAuth callback is registered against it. Close the app holding it, or start Clip Factory with `CLIP_FACTORY_PORT` set to another port and update the provider's redirect URI to the one the Accounts tab then shows.
+
 **Connection refused on 8756.** The backend is not running, or it exited during startup. Run it in a terminal and read the traceback:
 
 ```powershell

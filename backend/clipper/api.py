@@ -1601,19 +1601,22 @@ def list_accounts() -> dict:
 
 
 @app.post("/api/accounts/{platform}/connect")
-def start_account_connection(platform: str, request: ConnectStartRequest) -> dict:
+def start_account_connection(
+    platform: str, payload: ConnectStartRequest, http_request: Request
+) -> dict:
     if platform not in publish_limits.LIMITS:
         raise HTTPException(status_code=404, detail=f"Unknown platform: {platform}")
+    redirect_uri = payload.redirect_uri or publish_oauth.callback_url(str(http_request.base_url))
     try:
         stored = accounts.load_provider_client(platform)
-        client_id = request.client_id.strip() or stored["client_id"]
-        client_secret = request.client_secret.strip() or stored["client_secret"]
+        client_id = payload.client_id.strip() or stored["client_id"]
+        client_secret = payload.client_secret.strip() or stored["client_secret"]
         start = publish_oauth.start(
             platform,
             client_id,
             client_secret,
-            redirect_uri=request.redirect_uri,
-            scopes=request.scopes,
+            redirect_uri=redirect_uri,
+            scopes=payload.scopes,
         )
         accounts.save_provider_client(platform, client_id, client_secret)
     except secrets.SecretStoreUnavailable as exc:

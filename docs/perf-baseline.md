@@ -66,9 +66,9 @@ path is unavailable.
 
 | Artifact | Raw | Gzip |
 |---|---|---|
-| shell JS | 400.95 kB | 120.78 kB |
+| shell JS | 400.99 kB | 120.77 kB |
 | CSS | 170.42 kB | 28.60 kB |
-| lazy editor panels | 28.4 kB total | 10.6 kB total |
+| lazy editor panels | 28.3 kB total | 10.6 kB total |
 
 The four inspector tab panels (`CoachPanel`, `ExportPanel`, `PublishPanel`,
 `SubtitleStudio`) load on first use. The dialogs and the theme atelier were

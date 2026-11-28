@@ -30,6 +30,11 @@ import type {
 
 const BASE = '/api'
 
+/** The loopback callback on whichever origin serves this page. */
+export function callbackUrl(): string {
+  return `${window.location.origin}/api/connections/callback`
+}
+
 const TERMINAL = new Set(['done', 'error', 'cancelled'])
 
 // Caption pages are the biggest per-clip payload and the reel is browsed clip by

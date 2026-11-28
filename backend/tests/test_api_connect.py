@@ -1,4 +1,5 @@
 import time
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +45,17 @@ def test_accounts_and_learning_routes_are_local_and_honest(clean_db):
         weekly = client.get("/api/learning/weekly")
         assert weekly.status_code == 200
         assert weekly.json()["interval_days"] == 7
+
+
+def test_connect_callback_tracks_the_origin_serving_the_app(clean_db):
+    with TestClient(api.app) as client:
+        started = client.post(
+            "/api/accounts/youtube/connect",
+            json={"client_id": "client-123", "client_secret": "secret-456"},
+        )
+        assert started.status_code == 200, started.text
+        query = parse_qs(urlparse(started.json()["url"]).query)
+        assert query["redirect_uri"] == ["http://testserver/api/connections/callback"]
 
 
 def test_account_sync_posts_and_overview(clean_db, monkeypatch):
