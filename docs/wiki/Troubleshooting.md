@@ -21,6 +21,10 @@ $env:PYTHONPATH = "backend"
 
 **Electron says `app is undefined`.** `ELECTRON_RUN_AS_NODE=1` is set in the shell. Unset it for that command.
 
+**`npm run build` fails with EPERM or a file-lock error in a synced folder.** OneDrive can refuse the default TEMP path. Point `TEMP` and `TMP` at a folder inside the checkout for that build; `scripts/install.ps1`, `scripts/run.cmd` and `scripts/build-release.ps1` already do.
+
+**The packaged app cannot find its backend.** A packaged run uses `resources\backend`, `resources\web\dist` and `resources\python`. Rebuild with `scripts/build-release.ps1`; a partial copy of `win-unpacked` is not enough.
+
 ## Analysis
 
 **Nothing happens after Analyze.** Check that the source appears and the job is running. The backend worker is single-threaded; a download, another analysis or a render in front of it will delay the job. `GET /api/health` reports `busy`, and `GET /api/jobs` shows the queue.

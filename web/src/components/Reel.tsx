@@ -151,10 +151,10 @@ export const Reel = memo(function Reel({
             <span className="work-empty-mark" aria-hidden="true">
               <Icon name="film" size={22} />
             </span>
-            <h2>Nothing in the bin yet.</h2>
+            <h2>No source yet.</h2>
             <p>
-              Import a recording from the project panel, or generate the demo stream to see the
-              pipeline end to end.
+              Add a recording in Library, or generate the demo stream, to see the pipeline end to
+              end.
             </p>
             <div className="work-empty-actions">
               <button type="button" className="btn primary" onClick={onImport} disabled={busy}>

@@ -16,6 +16,11 @@ data-empty/
 node_modules/
 web/dist/
 
+# Release builds
+.build-release/
+.buildtmp/
+dist-installer/
+
 # Runtime artifacts - generated media, cached transcripts, the database
 data/
 

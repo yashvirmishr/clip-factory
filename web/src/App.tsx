@@ -1005,7 +1005,7 @@ export default function App() {
       },
       { id: 'file.setup', label: 'Hardware & models…', group: 'File', icon: 'sliders', keywords: 'setup gpu whisper', run: () => void openSetup() },
 
-      { id: 'edit.searchSources', label: 'Search sources', group: 'Edit', icon: 'search', shortcut: 'Ctrl F', keywords: 'project bin filter', run: () => focusField('source-search') },
+      { id: 'edit.searchSources', label: 'Search sources', group: 'Edit', icon: 'search', shortcut: 'Ctrl F', keywords: 'source filter', run: () => focusField('source-search') },
       { id: 'edit.searchClips', label: 'Search clips', group: 'Edit', icon: 'search', shortcut: 'Ctrl Shift F', keywords: 'reel filter', run: () => focusField('clip-search') },
       {
         id: 'edit.copyHook',

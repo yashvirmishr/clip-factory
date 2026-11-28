@@ -6,7 +6,7 @@ This page takes you from a clean checkout to a rendered clip. The application ha
 
 | Requirement | Why |
 |---|---|
-| Python 3.10+ | The API, pipeline and tests |
+| Python 3.11+ | The API, pipeline and tests |
 | Node.js 20.19+ or 22.12+ | Vite 7 and the React frontend |
 | ffmpeg and ffprobe on `PATH` | Media probing, audio extraction, rendering and export; the build must include libass |
 | A Chromium-based browser or the Electron shell | Video preview and the full workspace |
@@ -19,6 +19,19 @@ This page takes you from a clean checkout to a rendered clip. The application ha
 ## Install
 
 ### Windows
+
+One command creates the virtual environment, installs the requirements, builds
+the UI and adds a desktop shortcut:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+It checks for Python 3.11+ and Node 20+, warns when ffmpeg is missing, and is
+safe to re-run. Pass `-SkipBuild` to reuse an existing `web\dist`, or
+`-NoShortcut` to skip the shortcut.
+
+The manual route:
 
 ```powershell
 py -3 -m venv .venv
@@ -76,7 +89,27 @@ Open `http://localhost:5173`. Vite proxies `/api` to `127.0.0.1:8756`.
 .\scripts\run.cmd
 ```
 
-This builds the frontend, sets `CLIPPER_DATA_DIR` to the repository's `data` directory, starts the API on port 8756, and opens the browser. It is the quickest way to run the production bundle, but it does not hot-reload.
+This builds the frontend when `web\dist` is missing (pass `--rebuild` to force a
+fresh build), sets `CLIPPER_DATA_DIR` to the repository's `data` directory,
+starts the API on port 8756, and opens the browser. It is the quickest way to run
+the production bundle, but it does not hot-reload.
+
+### Build a Windows installer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
+```
+
+The script builds the UI, unpacks a portable Python 3.12 runtime with the
+backend requirements into `.build-release\python`, and packages the Electron
+shell with electron-builder. The result is
+`dist-installer\ClipFactory-Setup-0.1.0.exe` (per-user install, no admin
+prompt). It is unsigned, so Windows SmartScreen warns on first launch. Pass
+`-SkipWeb` or `-SkipPython` to reuse existing inputs, and `-NoInstall` when
+`desktop\node_modules` is already current.
+
+The installed app carries its own Python and the built UI; ffmpeg, whisper.cpp
+and any local model still come from the machine, exactly as in a checkout.
 
 ## Run the built app
 

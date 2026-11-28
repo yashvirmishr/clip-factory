@@ -71,13 +71,14 @@ Stop and resume any time; progress is saved. The tour is also under
 | Hardware probe + tier advisory + model recommendations | working |
 | Model manager: resumable downloads in-app (multilingual speech, scoring, face tracking), activation that survives restart | working |
 | Desktop shell (Electron + Python sidecar, orphan-proof) | working |
+| Windows installer (NSIS, per-user, bundled Python runtime; unsigned) | working |
 | ASS/libass caption burn + vertical 1080x1920 render via ffmpeg | working |
 | Hardware encoder probing (AMF/NVENC used only when a test encode passes) | working |
 | Editor handoff: OTIO, FCP7 XML, FCP X XML, CMX 3600 EDL, SRT/VTT, bake-to-MP4s, zip bundle | working |
 | Publishing: YouTube/X upload with your own OAuth client, durable queue, retry, cancel | working |
 | Gold-set pick-quality harness + CI regression gate | working |
 | MIT license | working (see [LICENSE](LICENSE)) |
-| Installer, bundled binaries, real-VOD gold sets | **not yet built** |
+| Code signing, bundled ffmpeg/whisper, auto-update, real-VOD gold sets | **not yet built** |
 
 The reel now leaves the app: one zip carries an OTIO timeline, an FCP7 XML, an
 EDL, per-clip SRT captions and a manifest, all with timecodes from the same
@@ -144,6 +145,17 @@ quality score, so "is this better?" is a number and not a vibe.
 
 ## Quickstart
 
+On Windows, one command sets up a checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+It checks Python 3.11+ and Node 20+, creates `.venv`, installs the requirements,
+builds the UI and adds a desktop shortcut (skip it with `-NoShortcut`). Then
+`scripts\run.cmd` serves the built app at `http://127.0.0.1:8756`. The manual
+route:
+
 ```bash
 # 1. Python sidecar
 py -3 -m venv .venv
@@ -171,6 +183,15 @@ cd ../desktop && npm install && npx electron .
 
 If Electron refuses to start with `app is undefined`, your shell has
 `ELECTRON_RUN_AS_NODE=1` set; unset it for that command.
+
+To build the Windows installer (bundled Python and UI, unsigned, per-user):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
+```
+
+The result is `dist-installer\ClipFactory-Setup-0.1.0.exe`. See
+[Getting Started](docs/wiki/Getting-Started.md) for the flags.
 
 Then in the UI: **Generate a demo stream → Analyze**, or paste a path to a real
 VOD. With no model installed the app runs the deterministic stub scorer and says
@@ -586,8 +607,8 @@ imports and the Twitch chat fetch you ask for, all opt-in.
 2. **`filmcraft-cli` command batches** — blocked on the alpha project publishing
    its command schema. OTIO import ("File → Import Timeline") works today, so
    this is a convenience, not a capability.
-3. **Packaging** — no installer and no bundled binaries: it runs from a
-   checkout with Python installed and nothing else.
+3. **Packaging** — the Windows installer is unsigned and bundles no ffmpeg,
+   whisper.cpp or models, so those still come from the machine.
 4. **Speaker-aware framing** — face tracking with mouth-activity scoring is in
    place, but it follows the most active face rather than a known speaker. True
    diarization (who is talking) is the next step; `CropPlan` is the interface it

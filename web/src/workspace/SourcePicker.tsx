@@ -11,7 +11,7 @@ interface SourcePickerProps {
 }
 
 /**
- * The source switcher lives in the Clips header now that the bin is its own
+ * The source switcher lives in the Clips header now that sources are their own
  * area. Same reach, one fewer permanent column.
  */
 export function SourcePicker({ sources, selectedId, onSelect, onOpenLibrary }: SourcePickerProps) {

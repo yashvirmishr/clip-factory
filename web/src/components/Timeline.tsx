@@ -274,7 +274,7 @@ export function Timeline({
           <p>
             {hasSource
               ? 'Analyze the source to place ranked clips and their waveform on the timeline.'
-              : 'Import a recording in the project panel to build a timeline.'}
+              : 'Import a recording in Library to build a timeline.'}
           </p>
         </div>
       ) : (

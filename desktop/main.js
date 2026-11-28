@@ -18,8 +18,10 @@ const fs = require('node:fs')
 const net = require('node:net')
 const path = require('node:path')
 
-const ROOT = path.resolve(__dirname, '..')
-const isDebug = process.argv.includes('--debug')
+// Packaged builds keep the backend, built UI and Python runtime beside the
+// executable in resources/; a checkout keeps them at the repository root.
+const ROOT = app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..')
+const isDebug = process.env.CLIP_FACTORY_DEBUG === '1'
 
 let sidecar = null
 let mainWindow = null
@@ -101,14 +103,24 @@ function freePort() {
 }
 
 function pythonExecutable() {
-  const candidates =
-    process.platform === 'win32'
-      ? [path.join(ROOT, '.venv', 'Scripts', 'python.exe')]
-      : [path.join(ROOT, '.venv', 'bin', 'python')]
+  const onWindows = process.platform === 'win32'
+  const candidates = []
+  if (app.isPackaged) {
+    candidates.push(
+      onWindows
+        ? path.join(ROOT, 'python', 'python.exe')
+        : path.join(ROOT, 'python', 'bin', 'python3'),
+    )
+  }
+  candidates.push(
+    onWindows
+      ? path.join(ROOT, '.venv', 'Scripts', 'python.exe')
+      : path.join(ROOT, '.venv', 'bin', 'python'),
+  )
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate
   }
-  return process.platform === 'win32' ? 'python' : 'python3'
+  return onWindows ? 'python' : 'python3'
 }
 
 function killSidecar() {
@@ -158,7 +170,20 @@ async function startSidecar() {
   const url = `http://127.0.0.1:${port}`
   const python = pythonExecutable()
 
-  sidecar = spawn(python, ['-m', 'clipper', '--port', String(port)], {
+  // The packaged runtime is an embeddable Python whose ._pth isolates it from
+  // PYTHONPATH, so point it at the bundled backend explicitly. A checkout keeps
+  // using the normal module entry point.
+  const backendDir = path.join(ROOT, 'backend')
+  const bootstrap = app.isPackaged
+    ? [
+        '-c',
+        `import sys; sys.path.insert(0, ${JSON.stringify(backendDir)}); from clipper.__main__ import main; main()`,
+        '--port',
+        String(port),
+      ]
+    : ['-m', 'clipper', '--port', String(port)]
+
+  sidecar = spawn(python, bootstrap, {
     cwd: ROOT,
     windowsHide: true,
     env: {

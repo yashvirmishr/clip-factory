@@ -110,7 +110,12 @@ The UI is desktop-first. Compact layouts collapse panels and remain usable on a 
 
 ## Platform and operations
 
-There is no installer, code-signed package or auto-updater. The Electron shell runs from source, expects a built `web/dist`, and prefers the repository virtualenv (falling back to `python` or `python3` on `PATH`).
+The Windows installer is unsigned, per-user and builds from source with
+`scripts/build-release.ps1`; there is no auto-updater or code signing. It bundles
+the Python runtime and the built UI, but not ffmpeg, whisper.cpp or any model, so
+those still come from the machine. Running from a checkout still needs a built
+`web/dist` and the repository virtualenv (falling back to `python` or
+`python3` on `PATH`).
 
 The backend is single-user and unauthenticated. It binds to loopback by default and must not be exposed to a network. Two backend processes against one SQLite data directory will contend for the database.
 

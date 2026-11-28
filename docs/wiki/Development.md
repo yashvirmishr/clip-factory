@@ -223,7 +223,15 @@ cd ../desktop
 npm start
 ```
 
-The desktop shell expects `web/dist`. It prefers the repository virtualenv and falls back to `python` or `python3` on `PATH`. It starts its own sidecar on an ephemeral port and passes that port with `--port`; if you change the health path or the module entry point, update `desktop/main.js` too.
+The desktop shell expects `web/dist`. It prefers the repository virtualenv and falls back to `python` or `python3` on `PATH`. It starts its own sidecar on an ephemeral port and passes that port with `--port`; if you change the health path or the module entry point, update `desktop/main.js` too. Set `CLIP_FACTORY_DEBUG=1` to echo sidecar stdout (the packaged app accepts the same variable).
+
+`scripts/install.ps1` creates the environment and builds the UI for a checkout;
+`scripts/build-release.ps1` produces the NSIS installer. A packaged app has
+`resources/backend`, `resources/web/dist` and `resources/python` beside the
+executable, and `main.js` switches to `process.resourcesPath`. The bundled
+runtime is an embeddable Python whose `._pth` isolates it from `PYTHONPATH`, so
+packaged sidecars start through a small `-c` bootstrap that inserts the backend
+directory. Keep both layouts in mind when changing the spawn path.
 
 ## House rules
 

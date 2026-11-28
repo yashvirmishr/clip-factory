@@ -54,6 +54,7 @@ It ingests a VOD, finds sentence-bounded moments, rejects the obvious failures, 
 | Learning | Local decision log and taste re-ranker, connected-account engagement analytics, gated weekly personal model, evidence-based coach suggestions |
 | Interface | Library / Clips / Publish areas, one header per area, resizable floating inspector, command palette, context menus, six built-in themes |
 
+| Distribution | One-command Windows setup from a checkout; unsigned per-user NSIS installer that bundles Python and the built UI |
 ## Local by default
 
 Clip Factory binds the API to `127.0.0.1`, stores its database and artifacts in a local data directory, and has no account system, telemetry or cloud dependency. The page requests its default UI typefaces from Google Fonts; offline, it falls back to system fonts. Other network access happens when you import a URL, fetch Twitch chat, download a model, or apply a custom theme that declares a remote font stylesheet.

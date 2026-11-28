@@ -1,0 +1,37 @@
+appId: com.clipfactory.desktop
+productName: Clip Factory
+copyright: Copyright (c) 2026 Clip Factory contributors
+
+directories:
+  output: ../dist-installer
+  buildResources: build
+
+files:
+  - main.js
+  - preload.js
+  - package.json
+
+extraResources:
+  - from: ../backend
+    to: backend
+  - from: ../web/dist
+    to: web/dist
+  - from: ../.build-release/python
+    to: python
+  - from: ../LICENSE
+    to: LICENSE
+
+win:
+  icon: ../web/public/brand/clip-factory-icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Clip Factory
+  artifactName: ClipFactory-Setup-${version}.${ext}
