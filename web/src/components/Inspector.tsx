@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { lazy, memo, Suspense, useEffect, useRef, useState } from 'react'
 import { api, formatTimecode } from '../api'
 import type { Captions, Clip, Verdict } from '../types'
 import { Icon } from '../workspace/Icon'
@@ -6,12 +6,27 @@ import { Tabs } from '../workspace/Tabs'
 import { usePlayhead } from '../workspace/playhead'
 import { Spinner } from '../workspace/ui'
 import { GateWarnings, ScoreBars, TruthList } from './bits'
-import { CoachPanel } from './CoachPanel'
-import { ExportPanel } from './ExportPanel'
-import { PublishPanel, type RenderedClip } from './PublishPanel'
+import type { RenderedClip } from './PublishPanel'
 import { RenderPanel, type RenderRequest } from './RenderPanel'
-import { SubtitleStudio } from './SubtitleStudio'
 import { TrimPanel } from './TrimPanel'
+
+// The four tab panels are the bulk of the inspector's code and none of them is
+// needed to paint the shell. Loading them on the first tab visit keeps the
+// initial bundle smaller without changing what a tab does once opened.
+const CoachPanel = lazy(() => import('./CoachPanel').then((m) => ({ default: m.CoachPanel })))
+const ExportPanel = lazy(() => import('./ExportPanel').then((m) => ({ default: m.ExportPanel })))
+const PublishPanel = lazy(() => import('./PublishPanel').then((m) => ({ default: m.PublishPanel })))
+const SubtitleStudio = lazy(() =>
+  import('./SubtitleStudio').then((m) => ({ default: m.SubtitleStudio })),
+)
+
+function PanelFallback({ label }: { label: string }) {
+  return (
+    <div className="panel-loading">
+      <Spinner label={label} />
+    </div>
+  )
+}
 
 export type InspectorTab = 'properties' | 'captions' | 'coach' | 'output'
 
@@ -345,13 +360,15 @@ export const Inspector = memo(function Inspector({
           </div>
         ) : tab === 'captions' ? (
           <div className="inspector-scroll stack-14">
-            <SubtitleStudio
-              sourceId={sourceId}
-              clipId={clip.id}
-              pages={captions?.pages ?? []}
-              captionsFont={captions?.font}
-              onNotify={onNotify}
-            />
+            <Suspense fallback={<PanelFallback label="Opening the caption studio" />}>
+              <SubtitleStudio
+                sourceId={sourceId}
+                clipId={clip.id}
+                pages={captions?.pages ?? []}
+                captionsFont={captions?.font}
+                onNotify={onNotify}
+              />
+            </Suspense>
             <div className="caption-stats">
               <div>
                 <span className="label">Pages</span>
@@ -415,13 +432,15 @@ export const Inspector = memo(function Inspector({
             )}
           </div>
         ) : tab === 'coach' ? (
-          <CoachPanel
-            sourceId={sourceId}
-            clip={clip}
-            onClipUpdated={onClipUpdated}
-            onSeek={onSeek}
-            onNotify={onNotify}
-          />
+          <Suspense fallback={<PanelFallback label="Opening the coach" />}>
+            <CoachPanel
+              sourceId={sourceId}
+              clip={clip}
+              onClipUpdated={onClipUpdated}
+              onSeek={onSeek}
+              onNotify={onNotify}
+            />
+          </Suspense>
         ) : (
           <div className="inspector-scroll stack-14" data-tour="render">
             <RenderPanel
@@ -432,13 +451,15 @@ export const Inspector = memo(function Inspector({
               onNotify={onNotify}
               onRendered={setRendered}
             />
-            <ExportPanel
-              sourceId={sourceId}
-              clipId={clip?.id ?? null}
-              clipCount={clipCount}
-              onNotify={onNotify}
-            />
-            <PublishPanel sourceId={sourceId} clip={clip} rendered={rendered} onNotify={onNotify} />
+            <Suspense fallback={<PanelFallback label="Opening export and publishing" />}>
+              <ExportPanel
+                sourceId={sourceId}
+                clipId={clip?.id ?? null}
+                clipCount={clipCount}
+                onNotify={onNotify}
+              />
+              <PublishPanel sourceId={sourceId} clip={clip} rendered={rendered} onNotify={onNotify} />
+            </Suspense>
             <p className="panel-note">
               Rendered masters are cached locally. Handoff timelines reference the original source;
               move the source and the NLE will ask to relink.
